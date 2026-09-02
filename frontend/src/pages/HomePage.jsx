@@ -10,22 +10,28 @@ export function HomePage() {
   const { user, notify } = useApp();
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
+  const [waking, setWaking] = useState(false);
 
-  // Carrega com novas tentativas: o plano gratuito do Render pode levar ~40 s
-  // para "acordar" no primeiro acesso do dia; insistimos antes de mostrar erro.
+  // Carrega com insistência: no plano gratuito o Render pode levar ~40-60 s
+  // para "acordar" no primeiro acesso do dia. Em vez de mostrar erro cedo
+  // demais, aguardamos com aviso amigável e só então exibimos o ErrorState.
   const load = async () => {
     setError(null);
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    setWaking(false);
+    const waits = [0, 3000, 5000, 8000, 12000, 15000, 20000];
+    for (let attempt = 0; attempt < waits.length; attempt += 1) {
+      if (waits[attempt]) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+        setWaking(true);
+      }
       try {
         // eslint-disable-next-line no-await-in-loop
         setStats(await api.stats());
+        setWaking(false);
         return;
       } catch (err) {
-        if (attempt < 2) {
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
-          continue;
-        }
+        if (attempt < waits.length - 1) continue;
         setError(err);
         const cached = window.localStorage.getItem('quiz-daniel:v1:cached-stats');
         if (cached) {
@@ -65,7 +71,24 @@ export function HomePage() {
       </section>
 
       {error && !stats && <ErrorState error={error} onRetry={load} />}
-      {!stats && !error && <Loading label="Carregando indicadores…" />}
+      {!stats && !error && (
+        <Loading
+          label={
+            waking
+              ? 'Acordando o servidor (plano gratuito)… já já carrega 🙏'
+              : 'Carregando indicadores…'
+          }
+        />
+      )}
+      {error && stats && (
+        <p className="faint mb-8" style={{ fontSize: 13 }}>
+          ⚠️ O servidor não respondeu agora; exibindo os últimos indicadores salvos neste
+          aparelho.{' '}
+          <button type="button" className="linklike" onClick={load}>
+            Tentar de novo
+          </button>
+        </p>
+      )}
 
       {stats && (
         <>

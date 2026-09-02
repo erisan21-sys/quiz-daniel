@@ -625,3 +625,14 @@ table.data .num { text-align: right; font-variant-numeric: tabular-nums; }
   text-align: center;
 }
 @media (max-width: 767px) { .footer { padding-bottom: 76px; } }
+
+/* botão com aparência de link (usado em avisos inline) */
+.linklike {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent, #7c5cff);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
