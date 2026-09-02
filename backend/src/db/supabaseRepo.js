@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import NodeWebSocket from 'ws';
 import crypto from 'node:crypto';
 import { ApiError } from '../utils/rules.js';
 
@@ -31,6 +32,12 @@ export function createSupabaseRepo({ url, serviceKey }) {
   const db = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { 'x-application-name': 'quiz-daniel-api' } },
+    // Node < 22 não tem WebSocket nativo (exigido pelo canal realtime do
+    // supabase-js); fornecemos o pacote `ws` como transporte quando necessário.
+    realtime:
+      typeof globalThis.WebSocket === 'function'
+        ? undefined
+        : { transport: NodeWebSocket },
   });
 
   const repo = {
