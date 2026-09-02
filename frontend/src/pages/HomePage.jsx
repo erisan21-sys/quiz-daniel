@@ -11,19 +11,37 @@ export function HomePage() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
 
-  const load = () => {
+  // Carrega com novas tentativas: o plano gratuito do Render pode levar ~40 s
+  // para "acordar" no primeiro acesso do dia; insistimos antes de mostrar erro.
+  const load = async () => {
     setError(null);
-    api
-      .stats()
-      .then(setStats)
-      .catch((err) => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        setStats(await api.stats());
+        return;
+      } catch (err) {
+        if (attempt < 2) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+          continue;
+        }
         setError(err);
         const cached = window.localStorage.getItem('quiz-daniel:v1:cached-stats');
-        if (cached) setStats(JSON.parse(cached));
-      });
+        if (cached) {
+          try {
+            setStats(JSON.parse(cached));
+          } catch {
+            /* cache ilegível: segue com o estado de erro */
+          }
+        }
+      }
+    }
   };
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   useEffect(() => {
     if (stats) {
