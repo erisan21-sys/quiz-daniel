@@ -8,7 +8,9 @@ anti-fraude e PWA instalável no Android.
 > **Regra de ouro:** a pontuação oficial pertence ao **servidor**. O navegador nunca recebe o
 > gabarito antes de responder e nunca calcula score, percentual, posição ou duração oficial.
 >
-> **Hospedagem:** Vercel (frontend) + Render/Railway (backend) + Supabase (banco).
+> **Hospedagem de produção (ativa):** Vercel https://quiz-daniel.vercel.app ·
+> Render https://quiz-daniel-api.onrender.com · Supabase (projeto `quiz-daniel`).
+> Arquitetura: Vercel (frontend) + Render (backend) + Supabase (banco).
 > **Zero dependência de E2B/sandbox**: não há `e2b.app`, `sandboxId`, `Sandbox.create()` ou
 > `E2B_API_KEY` em nenhum arquivo do projeto (guia completo em `docs/DEPLOY.md`).
 

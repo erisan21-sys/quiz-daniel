@@ -46,6 +46,7 @@ create table if not exists public.users (
   share_profile boolean      not null default true,
   created_at    timestamptz  not null default now(),
   last_seen_at  timestamptz  not null default now(),
+  updated_at    timestamptz  not null default now(),   -- usado pelo trigger trg_users_updated_at
 
   constraint users_name_len      check (char_length(trim(name)) between 2 and 80),
   constraint users_nickname_len  check (char_length(trim(nickname::text)) between 2 and 30),

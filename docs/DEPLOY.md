@@ -133,3 +133,38 @@ Render · instalação do PWA no celular · modo offline (aviação) com aviso e
 * Mudanças de banco: novo arquivo `database/migracoes/XXXX.sql` aplicado no SQL Editor
   (nunca editar tabelas na mão sem registrar a migração no repositório).
 * Rollback: Vercel e Render mantêm deploys anteriores com botão de promoção instantânea.
+
+
+---
+
+## Ambiente de PRODUÇÃO real (publicado e testado em 2026-09-02)
+
+| Camada | Onde | URL / identificador |
+|---|---|---|
+| Frontend (Vite+React, PWA) | Vercel | https://quiz-daniel.vercel.app |
+| Backend (Express, Node 22) | Render (web service, região virginia) | https://quiz-daniel-api.onrender.com |
+| Banco (Postgres + RLS) | Supabase (projeto `quiz-daniel`) | via `SUPABASE_URL` (segredo no Render) |
+| Código-fonte | GitHub (privado) | github.com/erisan21-sys/quiz-daniel |
+
+Validações executadas nas URLs finais: home/PWA 200 · `/health` e `/api/health` (driver
+supabase) · partida completa em ritmo humano (20 respostas 200, score e ranking do servidor,
+conquistas no finish) · rankings today/week/month/all/me · perfil/histórico sem vazar nome ·
+stats · admin (200 com token, 401 sem, 403 errado) · CORS aceita somente o domínio Vercel ·
+Helmet · rate limit (`ratelimit: limit=400...`) · anonimização e exclusão de conta (LGPD).
+
+### Peculiaridades da API da Render descobertas no deploy (útil p/ recriar)
+
+1. `POST /v1/services` usa `type: "web_service"` (não `web`) e `repo` como URL completa;
+   comandos de build/start vão em `serviceDetails.envSpecificDetails`; `runtime` dentro de
+   `serviceDetails`.
+2. **`envVars`, `rootDir` e `openPorts` passados na CRIAÇÃO são descartados silenciosamente.**
+   Aplique depois: `PATCH /v1/services/{id}` (rootDir) e `PUT /v1/services/{id}/env-vars`
+   (lista completa). Sem as variáveis, o deploy morre em ~20 s com `update_failed` porque o
+   `assertConfig` de produção barra o boot sem segredos — comportamento correto do app.
+3. Regiões do plano free: oregon, frankfurt, ohio, singapore, virginia (São Paulo é pago).
+
+### Migrações de banco
+
+`database/migracoes/2026-09-02_users_updated_at.sql` — adiciona `updated_at` em `public.users`
+(o trigger `trg_users_updated_at` referencia a coluna; sem ela, updates de usuário falhavam no
+Postgres). Já aplicada no projeto Supabase de produção.
