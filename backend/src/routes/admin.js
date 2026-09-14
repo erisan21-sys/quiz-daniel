@@ -1,5 +1,6 @@
 import express from 'express';
 import { ApiError, isUuid, formatDuration, formatScore, normalizeMode } from '../utils/rules.js';
+import { BOOKS, getBook, normalizeBookId } from '../utils/books.js';
 import { asyncHandler } from '../middleware/error.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getAdminLimiter } from '../middleware/rateLimit.js';
@@ -8,7 +9,8 @@ import { attemptSummary } from '../services/quizService.js';
 
 /**
  * Área administrativa (/admin no frontend → /api/admin na API).
- * Protegida por ADMIN_TOKEN (v1.0) ou por registro em admin_tokens (v1.1+).
+ * Protegida por ADMIN_TOKEN ou por registro em admin_tokens.
+ * Todas as visões aceitam o filtro `?book_id=` (oseias | obadias | jonas).
  */
 export function createAdminRoutes({ repo }) {
   const router = express.Router();
@@ -16,16 +18,41 @@ export function createAdminRoutes({ repo }) {
   router.use(requireAdmin(repo));
   router.use(getAdminLimiter());
 
+  function parseBook(query = {}, { required = false } = {}) {
+    const rawBook = query.book_id ?? query.book;
+    if (rawBook === undefined || rawBook === '') {
+      if (required) throw new ApiError(400, 'Informe o livro: book_id deve ser oseias, obadias ou jonas.');
+      return null;
+    }
+    const bookId = normalizeBookId(rawBook);
+    if (!bookId) throw new ApiError(400, 'Livro inválido. Escolha oseias, obadias ou jonas.');
+    return bookId;
+  }
+
   /* ----------------------------------------------------------- dashboard */
   router.get(
     '/overview',
-    asyncHandler(async (_req, res) => {
+    asyncHandler(async (req, res) => {
+      const bookId = parseBook(req.query);
       const [stats, users, attempts, questions] = await Promise.all([
-        repo.globalStats(),
+        repo.globalStats({ bookId }),
         repo.listUsers({ limit: 5 }),
-        repo.listAttempts({ limit: 5 }),
-        repo.listQuestions({ includeInactive: true }),
+        repo.listAttempts({ limit: 5, bookId }),
+        repo.listQuestions({ includeInactive: true, bookId }),
       ]);
+
+      const byBook = {};
+      for (const book of BOOKS) {
+        const list = questions.filter((q) => q.book_id === book.id);
+        byBook[book.id] = {
+          book: getBook(book.id),
+          total: list.length,
+          facil: list.filter((q) => q.difficulty === 'facil' && q.active !== false).length,
+          medio: list.filter((q) => q.difficulty === 'medio' && q.active !== false).length,
+          dificil: list.filter((q) => q.difficulty === 'dificil' && q.active !== false).length,
+          inativas: list.filter((q) => q.active === false).length,
+        };
+      }
 
       const distribution = questions.reduce(
         (acc, q) => {
@@ -37,8 +64,10 @@ export function createAdminRoutes({ repo }) {
       );
 
       res.json({
+        book_id: bookId,
         stats,
         distribution,
+        by_book: byBook,
         latest_users: users.items.map((u) => ({
           id: u.id, name: u.name, nickname: u.nickname, role: u.role,
           created_at: u.created_at, last_seen_at: u.last_seen_at,
@@ -72,6 +101,7 @@ export function createAdminRoutes({ repo }) {
             best_score: stats?.best_score ?? 0,
             best_score_label: formatScore(stats?.best_score ?? 0),
             avg_score: stats?.avg_score ?? 0,
+            per_book: stats?.per_book ?? null,
           };
         }),
       );
@@ -110,10 +140,11 @@ export function createAdminRoutes({ repo }) {
   router.get(
     '/questions',
     asyncHandler(async (req, res) => {
+      const bookId = parseBook(req.query);
       const mode = normalizeMode(req.query.difficulty);
-      const all = await repo.listQuestions({ includeInactive: true });
+      const all = await repo.listQuestions({ includeInactive: true, bookId });
       const items = mode && mode !== 'mixed' ? all.filter((q) => q.difficulty === mode) : all;
-      res.json({ total: items.length, items });
+      res.json({ total: items.length, book_id: bookId, items });
     }),
   );
 
@@ -122,7 +153,7 @@ export function createAdminRoutes({ repo }) {
     asyncHandler(async (req, res) => {
       const payload = validateQuestionPayload(req.body || {});
       const question = await repo.createQuestion(payload);
-      await repo.logAudit({ action: 'QUESTION_CREATED', detail: { id: question.id } }).catch(() => {});
+      await repo.logAudit({ action: 'QUESTION_CREATED', detail: { id: question.id, book_id: question.book_id } }).catch(() => {});
       res.status(201).json({ question });
     }),
   );
@@ -132,7 +163,9 @@ export function createAdminRoutes({ repo }) {
     asyncHandler(async (req, res) => {
       const { id } = req.params;
       if (!isUuid(id)) throw new ApiError(400, 'Identificador inválido.');
-      const payload = validateQuestionPayload(req.body || {}, { partial: true });
+      const existing = await repo.getQuestionById(id);
+      if (!existing) throw new ApiError(404, 'Questão não encontrada.');
+      const payload = validateQuestionPayload(req.body || {}, { partial: true, bookId: existing.book_id });
       if (!Object.keys(payload).length) throw new ApiError(400, 'Nada para atualizar.');
       const question = await repo.updateQuestion(id, payload);
       if (!question) throw new ApiError(404, 'Questão não encontrada.');
@@ -166,10 +199,12 @@ export function createAdminRoutes({ repo }) {
       const offset = Math.max(Number(req.query.offset) || 0, 0);
       const status = req.query.status || null;
       const userId = req.query.user_id && isUuid(req.query.user_id) ? req.query.user_id : null;
-      const { items, total } = await repo.listAttempts({ limit, offset, status, userId });
+      const bookId = parseBook(req.query);
+      const { items, total } = await repo.listAttempts({ limit, offset, status, userId, bookId });
 
       res.json({
         total,
+        book_id: bookId,
         items: items.map((a) => attemptSummary(a, {
           nickname: a.nickname,
           name: a.name,
@@ -184,18 +219,20 @@ export function createAdminRoutes({ repo }) {
   router.get(
     '/ranking',
     asyncHandler(async (req, res) => {
+      const bookId = parseBook(req.query, { required: true });
       const period = ['today', 'week', 'month', 'all'].includes(req.query.period) ? req.query.period : 'all';
       const mode = normalizeMode(req.query.difficulty) || 'all';
-      const items = await repo.leaderboard({ period, mode: mode === 'mixed' ? 'all' : mode, limit: 200 });
-      res.json({ period, mode, items });
+      const items = await repo.leaderboard({ bookId, period, mode: mode === 'mixed' ? 'all' : mode, limit: 200 });
+      res.json({ book_id: bookId, book: getBook(bookId), period, mode, items });
     }),
   );
 
   /* --------------------------------------------------------------- stats */
   router.get(
     '/stats',
-    asyncHandler(async (_req, res) => {
-      res.json(await repo.globalStats());
+    asyncHandler(async (req, res) => {
+      const bookId = parseBook(req.query);
+      res.json(await repo.globalStats({ bookId }));
     }),
   );
 

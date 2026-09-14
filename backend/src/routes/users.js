@@ -1,5 +1,6 @@
 import express from 'express';
 import { ApiError, isUuid, sanitizeText, validatePlayerInput } from '../utils/rules.js';
+import { BOOKS, getBook, normalizeBookId } from '../utils/books.js';
 import { issueUserToken } from '../utils/token.js';
 import { asyncHandler } from '../middleware/error.js';
 import { requireUser } from '../middleware/auth.js';
@@ -9,8 +10,8 @@ import config from '../config/index.js';
 
 /**
  * Rotas de jogadores: cadastro, perfil, histórico, conquistas e exclusão.
- * v1.0: cadastro simples por nome/apelido (sem senha).
- * v1.2: os campos email/auth_id já existem no banco para o Supabase Auth.
+ * Perfil e histórico trazem o agregado geral + o detalhamento por livro
+ * (`stats.per_book`, `ranks`, conquistas com `book_id`).
  */
 export function createUserRoutes({ repo, achievements }) {
   const router = express.Router();
@@ -28,16 +29,45 @@ export function createUserRoutes({ repo, achievements }) {
     };
   }
 
-  async function buildProfilePayload(id) {
-    const [stats, rank, userAchievements, history] = await Promise.all([
-      repo.playerStats(id),
-      repo
-        .playerRank({ userId: id, period: 'all', mode: 'all' })
-        .catch(() => ({ rank: 0, total_players: 0, beaten_percentage: 0 })),
-      achievements.listFor(id),
-      repo.listAttempts({ userId: id, status: 'FINISHED', limit: 50 }),
+  function parseBook(query = {}) {
+    const rawBook = query.book_id ?? query.book;
+    if (rawBook === undefined || rawBook === '') return null;
+    const bookId = normalizeBookId(rawBook);
+    if (!bookId) throw new ApiError(400, 'Livro inválido. Escolha oseias, obadias ou jonas.');
+    return bookId;
+  }
+
+  async function buildProfilePayload(id, bookId = null) {
+    const [stats, userAchievements, history] = await Promise.all([
+      repo.playerStats(id, { bookId }),
+      achievements.listFor(id, { bookId }),
+      repo.listAttempts({ userId: id, status: 'FINISHED', limit: 50, bookId }),
     ]);
-    return { stats, rank, userAchievements, history };
+    const rankEntries = await Promise.all(
+      (bookId ? BOOKS.filter((b) => b.id === bookId) : BOOKS).map(async (book) => {
+        const rank = await repo
+          .playerRank({ userId: id, bookId: book.id, period: 'all', mode: 'all' })
+          .catch(() => ({ rank: 0, total_players: 0, beaten_percentage: 0 }));
+        return [book.id, { book: getBook(book.id), ...rank }];
+      }),
+    );
+    const ranks = Object.fromEntries(rankEntries);
+    const scoped = bookId ? ranks[bookId] : null;
+    const played = rankEntries.map(([, entry]) => entry).filter((entry) => entry.rank > 0);
+    const best = played.length
+      ? played.reduce((a, b) => (a.rank <= b.rank ? a : b))
+      : { rank: 0, total_players: 0, beaten_percentage: 0 };
+    const headline = scoped ?? best;
+    return {
+      stats,
+      ranks,
+      // Retaguarda: sem filtro de livro, exibe o melhor rank entre os livros jogados.
+      rank: headline.rank,
+      total_players: headline.total_players,
+      beaten_percentage: headline.beaten_percentage,
+      userAchievements,
+      history,
+    };
   }
 
   /* ----------------------------------------------------------------------- */
@@ -68,7 +98,7 @@ export function createUserRoutes({ repo, achievements }) {
   );
 
   /* ----------------------------------------------------------------------- */
-  /* POST /api/users/rejoin — recuperar sessão pelo apelido (v1.0)           */
+  /* POST /api/users/rejoin — recuperar sessão pelo apelido                  */
   /* ----------------------------------------------------------------------- */
   router.post(
     '/rejoin',
@@ -95,12 +125,17 @@ export function createUserRoutes({ repo, achievements }) {
     requireUser(repo),
     asyncHandler(async (req, res) => {
       const user = req.user;
-      const { stats, rank, userAchievements, history } = await buildProfilePayload(user.id);
+      const bookId = parseBook(req.query);
+      const { stats, ranks, rank, total_players, beaten_percentage, userAchievements, history } =
+        await buildProfilePayload(user.id, bookId);
       res.json({
         user: publicProfile(user),
-        rank: rank.rank,
-        total_players: rank.total_players,
-        beaten_percentage: rank.beaten_percentage,
+        book_id: bookId,
+        book: bookId ? getBook(bookId) : null,
+        rank,
+        total_players,
+        beaten_percentage,
+        ranks,
         stats,
         achievements: userAchievements,
         history: history.items.map((attempt) => attemptSummary(attempt)),
@@ -112,7 +147,8 @@ export function createUserRoutes({ repo, achievements }) {
     '/me/achievements',
     requireUser(repo),
     asyncHandler(async (req, res) => {
-      res.json({ items: await achievements.listFor(req.userId) });
+      const bookId = parseBook(req.query);
+      res.json({ book_id: bookId, items: await achievements.listFor(req.userId, { bookId }) });
     }),
   );
 
@@ -182,12 +218,17 @@ export function createUserRoutes({ repo, achievements }) {
         throw new ApiError(403, 'Este jogador optou por não exibir o perfil publicamente.');
       }
 
-      const { stats, rank, userAchievements, history } = await buildProfilePayload(id);
+      const bookId = parseBook(req.query);
+      const { stats, ranks, rank, total_players, beaten_percentage, userAchievements, history } =
+        await buildProfilePayload(id, bookId);
       res.json({
         user: publicProfile(user),
-        rank: rank.rank,
-        total_players: rank.total_players,
-        beaten_percentage: rank.beaten_percentage,
+        book_id: bookId,
+        book: bookId ? getBook(bookId) : null,
+        rank,
+        total_players,
+        beaten_percentage,
+        ranks,
         stats,
         achievements: userAchievements,
         history: history.items.map((attempt) => attemptSummary(attempt)),
@@ -196,7 +237,7 @@ export function createUserRoutes({ repo, achievements }) {
   );
 
   /* ----------------------------------------------------------------------- */
-  /* GET /api/users/:id/history — histórico do jogador                       */
+  /* GET /api/users/:id/history — histórico do jogador (?book_id=)           */
   /* ----------------------------------------------------------------------- */
   router.get(
     '/:id/history',
@@ -212,12 +253,13 @@ export function createUserRoutes({ repo, achievements }) {
         throw new ApiError(403, 'Histórico indisponível: este jogador não compartilha o perfil.');
       }
 
+      const bookId = parseBook(req.query);
       const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
       const offset = Math.max(Number(req.query.offset) || 0, 0);
       const status = req.query.status === 'all' ? null : req.query.status || 'FINISHED';
 
-      const { items, total } = await repo.listAttempts({ userId: id, status, limit, offset });
-      res.json({ total, items: items.map((attempt) => attemptSummary(attempt)) });
+      const { items, total } = await repo.listAttempts({ userId: id, status, limit, offset, bookId });
+      res.json({ total, book_id: bookId, items: items.map((attempt) => attemptSummary(attempt)) });
     }),
   );
 

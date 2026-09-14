@@ -1,5 +1,5 @@
 /* ==========================================================================
- * QUIZ BÍBLICO — DANIEL · Service Worker (PWA)
+ * QUIZ BÍBLICO · Service Worker (PWA)
  * --------------------------------------------------------------------------
  * Estratégia:
  *  • assets estáticos  -> cache-first com atualização em segundo plano
@@ -11,7 +11,7 @@
  * os dados de leitura. O app avisa o usuário e sincroniza quando reconecta.
  * ========================================================================== */
 
-const VERSION = 'quiz-daniel-v1.0.0';
+const VERSION = 'quiz-biblico-v2.0.0';
 const STATIC_CACHE = `${VERSION}-static`;
 const API_CACHE = `${VERSION}-api`;
 

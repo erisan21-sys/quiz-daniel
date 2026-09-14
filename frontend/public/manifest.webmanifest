@@ -1,7 +1,7 @@
 {
-  "name": "Quiz Bíblico — Daniel",
-  "short_name": "Quiz Daniel",
-  "description": "Teste seus conhecimentos sobre o livro de Daniel (capítulos 1 a 12), com ranking, histórico, conquistas e estatísticas.",
+  "name": "Quiz Bíblico — Oséias · Obadias · Jonas",
+  "short_name": "Quiz Bíblico",
+  "description": "Teste seus conhecimentos sobre Oséias, Obadias e Jonas, com ranking separado por livro, histórico, conquistas e estatísticas.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -49,8 +49,8 @@
     {
       "name": "Jogar agora",
       "short_name": "Jogar",
-      "description": "Iniciar uma nova partida do Quiz de Daniel",
-      "url": "/#/quiz",
+      "description": "Escolher o livro e iniciar uma nova partida",
+      "url": "/#/",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
@@ -66,7 +66,7 @@
       "sizes": "1080x1920",
       "type": "image/svg+xml",
       "form_factor": "narrow",
-      "label": "Tela inicial do Quiz Bíblico — Daniel"
+      "label": "Tela inicial do Quiz Bíblico"
     }
   ]
 }

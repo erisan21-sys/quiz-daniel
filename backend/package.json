@@ -1,8 +1,8 @@
 {
-  "name": "quiz-daniel-backend",
-  "version": "1.0.0",
+  "name": "quiz-biblico-backend",
+  "version": "2.0.0",
   "private": true,
-  "description": "API do Quiz Bíblico — Daniel (autoridade oficial de pontuação, ranking e histórico)",
+  "description": "API do Quiz Bíblico (autoridade oficial de pontuação, ranking e histórico) — multi-livro: Oséias, Obadias, Jonas",
   "type": "module",
   "main": "src/server.js",
   "engines": {

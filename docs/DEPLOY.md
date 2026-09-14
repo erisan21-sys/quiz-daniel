@@ -4,7 +4,10 @@
 
 ### 1. Banco (Supabase)
 
-Siga `docs/SUPABASE.md` (schema → seed → rls) e copie as chaves.
+Siga `docs/SUPABASE.md`:
+* projeto novo → schema → seed_books → rls;
+* **produção v1 existente → aplicar a migração `database/migracoes/2026-09-14_multi_book.sql`
+  + `seed_books.sql` + `rls.sql` ANTES de publicar o backend v2.0** (faça `pg_dump` antes).
 
 ### 2. Backend (Render)
 
@@ -38,8 +41,9 @@ MIN_ANSWER_INTERVAL_MS=1200
 
 ### 4. Checagens finais
 
-* `https://api.../api/health` → `{"ok":true,...,"driver":"supabase"}`.
-* Cadastro → partida → resultado → ranking funcionando.
+* `https://api.../api/health` → `{"ok":true,...,"driver":"supabase"}` com 150 perguntas.
+* `/api/books` → 3 livros ativos.
+* Escolher livro → cadastro → partida → resultado → ranking do livro funcionando.
 * DevTools → Application → Manifest: ícones e “Adicionar à tela inicial” disponíveis
   (HTTPS obrigatório — automático nessas plataformas).
 
@@ -91,15 +95,17 @@ Vercel + Render/Railway + Supabase.
 
 ```bash
 npm run setup        # instala backend e frontend
-npm test             # 85 testes do backend
+npm test             # 92 testes do backend
 npm run build        # build de produção do frontend
 node scripts/preflight.mjs   # verificações de configuração p/ produção
 ```
 
-### Passo 1 — Banco (Supabase, já existente)
+### Passo 1 — Banco (Supabase)
 
-Nada é recriado: apenas confirme que `schema.sql`, `seed.sql` e `rls.sql` já foram aplicados
-uma única vez (docs/SUPABASE.md). O backend usa a conexão existente.
+* Projeto novo: aplique `schema.sql`, `seed_books.sql` e `rls.sql` uma única vez
+  (docs/SUPABASE.md).
+* Produção v1: aplique a migração `2026-09-14_multi_book.sql` + `seed_books.sql` + `rls.sql`
+  (com backup prévio). O backend usa a conexão existente.
 
 ### Passo 2 — Backend no Render
 
@@ -120,12 +126,13 @@ uma única vez (docs/SUPABASE.md). O backend usa a conexão existente.
 4. Deploy → anote a URL: `https://SEU-PROJETO.vercel.app`.
 5. Volte no Render e ajuste `CORS_ORIGIN=https://SEU-PROJETO.vercel.app` → redeploy do backend.
 
-### Passo 4 — Validação final (17 itens)
+### Passo 4 — Validação final (18 itens)
 
-Home · cadastro · partida completa · pontuação · ranking · histórico · estatísticas ·
-conquistas · admin · frontend→backend (DevTools/Network sem erros CORS) · backend→Supabase
-(`/api/health` com `driver: supabase`) · `/health` · console do navegador limpo · logs do
-Render · instalação do PWA no celular · modo offline (aviação) com aviso e fila.
+Home com 3 livros · cadastro · partida completa por livro · pontuação · ranking por livro ·
+histórico · estatísticas · conquistas · admin · frontend→backend (DevTools/Network sem erros
+CORS) · backend→Supabase (`/api/health` com `driver: supabase`) · `/health` · console do
+navegador limpo · logs do Render · instalação do PWA no celular · modo offline (aviação) com
+aviso e fila.
 
 ### Como atualizar no futuro
 
@@ -134,10 +141,9 @@ Render · instalação do PWA no celular · modo offline (aviação) com aviso e
   (nunca editar tabelas na mão sem registrar a migração no repositório).
 * Rollback: Vercel e Render mantêm deploys anteriores com botão de promoção instantânea.
 
-
 ---
 
-## Ambiente de PRODUÇÃO real (publicado e testado em 2026-09-02)
+## Ambiente de PRODUÇÃO real (publicado e testado em 2026-09-02, v1.0)
 
 | Camada | Onde | URL / identificador |
 |---|---|---|
@@ -152,6 +158,10 @@ conquistas no finish) · rankings today/week/month/all/me · perfil/histórico s
 stats · admin (200 com token, 401 sem, 403 errado) · CORS aceita somente o domínio Vercel ·
 Helmet · rate limit (`ratelimit: limit=400...`) · anonimização e exclusão de conta (LGPD).
 
+> A v2.0 (multi-livro) ainda **não** foi publicada: quando for, aplique primeiro a migração
+> `database/migracoes/2026-09-14_multi_book.sql` no Supabase e só então promova backend +
+> frontend novos.
+
 ### Peculiaridades da API da Render descobertas no deploy (útil p/ recriar)
 
 1. `POST /v1/services` usa `type: "web_service"` (não `web`) e `repo` como URL completa;
@@ -165,6 +175,9 @@ Helmet · rate limit (`ratelimit: limit=400...`) · anonimização e exclusão d
 
 ### Migrações de banco
 
-`database/migracoes/2026-09-02_users_updated_at.sql` — adiciona `updated_at` em `public.users`
-(o trigger `trg_users_updated_at` referencia a coluna; sem ela, updates de usuário falhavam no
-Postgres). Já aplicada no projeto Supabase de produção.
+* `database/migracoes/2026-09-02_users_updated_at.sql` — adiciona `updated_at` em `public.users`
+  (o trigger `trg_users_updated_at` referencia a coluna; sem ela, updates de usuário falhavam no
+  Postgres). Já aplicada no projeto Supabase de produção.
+* `database/migracoes/2026-09-14_multi_book.sql` — migração v1 → v2 (tabela `books`, `book_id`,
+  triggers/RPCs por livro; preserva histórico como `daniel` inativo). **Ainda não aplicada em
+  produção** — aplicar antes do deploy da v2.0.

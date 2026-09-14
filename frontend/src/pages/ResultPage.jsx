@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext.jsx';
 import { Link } from '../components/Link.jsx';
 import { AchievementsGrid } from '../components/Achievements.jsx';
 import { DifficultyBadge, ErrorState, Loading, SourceBadge } from '../components/ui.jsx';
+import { BookBadge } from '../components/BookTabs.jsx';
 import { formatNumber, formatPercent } from '../lib/format.js';
 import { lastResultStore } from '../lib/storage.js';
 
@@ -44,7 +45,7 @@ export function ResultPage({ segments }) {
   }, [attemptId]);
 
   async function onShare() {
-    const outcome = await shareResult(result.share_message);
+    const outcome = await shareResult(result.share_message, result.book?.name || result.book_name);
     if (outcome === 'shared') notify('Resultado compartilhado! 🎉', 'success');
     else if (outcome === 'whatsapp') notify('Abrindo o WhatsApp…', 'info');
   }
@@ -58,13 +59,17 @@ export function ResultPage({ segments }) {
   if (!result) return <Loading label="Buscando o resultado oficial…" />;
 
   const isOwner = user?.id === result.user_id;
+  const bookName = result.book?.name || result.book_name || '';
+  const replayHref = result.book_id ? `/quiz?livro=${result.book_id}` : '/';
+  const rankingHref = result.book_id ? `/ranking?livro=${result.book_id}` : '/ranking';
 
   return (
     <div className="rise" style={{ maxWidth: 760, margin: '0 auto' }}>
       <div className="card result-hero">
         <div className="trophy" aria-hidden="true">🏆</div>
         <h1>PARABÉNS!</h1>
-        <p>Você terminou o Quiz de Daniel.</p>
+        <p>Você terminou o Quiz{bookName ? ` de ${bookName}` : ' Bíblico'}.</p>
+        <p><BookBadge book={result.book} bookId={result.book_id} /></p>
 
         <div className="result-numbers">
           <div className="cell"><b>{result.total_questions}</b><span>perguntas</span></div>
@@ -75,7 +80,7 @@ export function ResultPage({ segments }) {
         </div>
 
         <div className="rank-callout">
-          {result.rank ? `🎖️ Você ficou em ${result.rank}º lugar.` : 'Sua partida ainda não entrou no ranking.'}
+          {result.rank ? `🎖️ Você ficou em ${result.rank}º lugar${bookName ? ` no ranking de ${bookName}` : ''}.` : 'Sua partida ainda não entrou no ranking.'}
           <small>
             {result.beaten_percentage > 0
               ? `Você superou ${formatPercent(result.beaten_percentage)} dos jogadores.`
@@ -127,21 +132,22 @@ export function ResultPage({ segments }) {
       </div>
 
       <div className="btn-row mt-16 stack">
-        <Link to="/quiz" className="btn btn-primary"> JOGAR NOVAMENTE</Link>
+        <Link to={replayHref} className="btn btn-primary">JOGAR NOVAMENTE</Link>
+        <Link to="/" className="btn">📚 TROCAR DE LIVRO</Link>
         <Link to="/historico" className="btn">📜 MEU HISTÓRICO</Link>
-        <Link to="/ranking" className="btn">🏆 RANKING</Link>
+        <Link to={rankingHref} className="btn">🏆 RANKING</Link>
       </div>
 
       <div className="card mt-16">
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowReview(!showReview)}>
-          {showReview ? '▾ Ocultar revisão' : '▸ Revisar as 20 questões'}
+          {showReview ? '▾ Ocultar revisão' : `▸ Revisar as ${result.total_questions} questões`}
         </button>
         {showReview && (
           <div className="mt-16">
             {result.review?.map((item) => (
               <div key={item.position} className="card" style={{ boxShadow: 'none' }}>
                 <div className="flex between items-center wrap gap-8">
-                  <span className="faint">#{item.position}</span>
+                  <span className="faint">#{item.position} · {item.chapter_label || `Cap. ${item.chapter}`}</span>
                   <div className="flex gap-8 items-center wrap">
                     <DifficultyBadge difficulty={item.difficulty} />
                     <SourceBadge source={item.source_type} />

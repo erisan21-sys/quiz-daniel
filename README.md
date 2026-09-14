@@ -1,15 +1,16 @@
-# 📖 QUIZ BÍBLICO — DANIEL · v1.0
+# 📖 QUIZ BÍBLICO · v2.0 (multi-livro)
 
-Sistema completo de perguntas e respostas sobre o livro de **Daniel (capítulos 1 a 12)**, com
-cadastro de jogadores, pontuação oficial no servidor, ranking público, histórico, perfil,
+Plataforma de perguntas e respostas sobre **Oséias (14 cap.)**, **Obadias (cap. único)** e
+**Jonas (4 cap.)** — 50 perguntas por livro (15 fáceis · 20 médias · 15 difíceis), com cadastro
+de jogadores, pontuação oficial no servidor, **ranking separado por livro**, histórico, perfil,
 conquistas, estatísticas, área administrativa, compartilhamento para WhatsApp, proteção
 anti-fraude e PWA instalável no Android.
 
 > **Regra de ouro:** a pontuação oficial pertence ao **servidor**. O navegador nunca recebe o
 > gabarito antes de responder e nunca calcula score, percentual, posição ou duração oficial.
 >
-> **Hospedagem de produção (ativa):** Vercel https://quiz-daniel.vercel.app ·
-> Render https://quiz-daniel-api.onrender.com · Supabase (projeto `quiz-daniel`).
+> **Hospedagem de produção (ativa):** Vercel <https://quiz-daniel.vercel.app> ·
+> Render <https://quiz-daniel-api.onrender.com> · Supabase (projeto `quiz-daniel`).
 > Arquitetura: Vercel (frontend) + Render (backend) + Supabase (banco).
 > **Zero dependência de E2B/sandbox**: não há `e2b.app`, `sandboxId`, `Sandbox.create()` ou
 > `E2B_API_KEY` em nenhum arquivo do projeto (guia completo em `docs/DEPLOY.md`).
@@ -31,12 +32,13 @@ quiz-daniel/
 │   │   │   ├── index.js         # seleção do driver (supabase | local)
 │   │   │   ├── supabaseRepo.js  # repositório PostgreSQL/Supabase (produção)
 │   │   │   ├── localRepo.js     # repositório em memória/JSON (dev e testes)
-│   │   │   └── seedData.js      # 20 perguntas + 7 conquistas (driver local)
+│   │   │   ├── seedData.js      # reexporta BOOKS + 150 perguntas + 21 conquistas
+│   │   │   └── seeds/           # oseias.js · obadias.js · jonas.js · achievements.js
 │   │   ├── middleware/          # auth (HMAC), rate limit, erros
-│   │   ├── routes/              # users, quiz, attempts, ranking, stats, questions, admin
+│   │   ├── routes/              # books, users, quiz, attempts, ranking, stats, questions, admin
 │   │   ├── services/            # quizService (pontuação) e achievementService
-│   │   └── utils/               # rules (regras oficiais), token, validation
-│   └── test/                    # 85 testes (node:test) — unitários + integração HTTP
+│   │   └── utils/               # books (metadados), rules (regras oficiais), token, validation
+│   └── test/                    # 92 testes (node:test) — unitários + integração HTTP
 ├── frontend/                    # React + Vite + PWA
 │   ├── index.html               # shell + registro do service worker
 │   ├── vite.config.js           # proxy /api → backend em dev
@@ -47,23 +49,27 @@ quiz-daniel/
 │   └── src/
 │       ├── api/client.js        # cliente HTTP + share/copy
 │       ├── context/AppContext   # sessão, conexão, toasts, install PWA
-│       ├── components/          # Layout, ui, LineChart, Achievements, Link
-│       ├── lib/                 # router (hash), format, storage
+│       ├── components/          # Layout, ui, LineChart, Achievements, Link, BookTabs
+│       ├── lib/                 # router (hash), format, storage, books
 │       ├── pages/               # Home, Cadastro, Quiz, Resultado, Ranking,
 │       │                        # Histórico, Perfil, Estatísticas, Admin
 │       └── styles/global.css    # design system mobile-first
 ├── database/
-│   ├── schema.sql               # tabelas, FKs, índices, constraints, triggers, RPCs
-│   ├── seed.sql                 # 20 perguntas (6/8/6) + 7 conquistas
+│   ├── schema.sql               # instalação limpa v2.0 (books + book_id + RPCs p_book)
+│   ├── seed_books.sql           # 3 livros + 150 perguntas + 21 conquistas (gerado)
+│   ├── seed.sql                 # LEGADO v1.0 (Daniel) — mantido p/ histórico
+│   ├── migracoes/
+│   │   └── 2026-09-14_multi_book.sql  # migração produção v1 → v2 (preserva histórico)
 │   └── rls.sql                  # Row Level Security + policies
 ├── docs/
-│   ├── ARQUITETURA.md           # fluxo, segurança, anti-fraude, roadmap v1.x–v2.0
+│   ├── ARQUITETURA.md           # fluxo, segurança, anti-fraude, roadmap
 │   ├── API.md                   # referência completa da API
-│   ├── SUPABASE.md              # configuração do banco, admin, backup
+│   ├── SUPABASE.md              # configuração do banco, admin, backup, migração v2
 │   ├── DEPLOY.md                # Vercel + Render/Railway + HTTPS/CORS
 │   ├── TESTES.md                # como rodar e o que cada teste cobre
 │   └── AUDITORIA.md             # auditoria final item a item
 ├── scripts/
+│   ├── build-seed-sql.mjs       # gera database/seed_books.sql a partir de seeds/*.js
 │   ├── generate-icons.py        # gera ícones do PWA (sem dependências)
 │   └── make-admin.mjs           # gera SQL do administrador
 ├── package.json                 # scripts de orquestração
@@ -96,7 +102,7 @@ Atalhos:
 
 | Comando              | O que faz                                            |
 | -------------------- | ---------------------------------------------------- |
-| `npm test`           | roda os 85 testes do backend                          |
+| `npm test`           | roda os 92 testes do backend                          |
 | `npm run build`      | build de produção do frontend (`frontend/dist`)       |
 | `npm run start:backend` | backend em modo produção (serve `frontend/dist` se existir) |
 | `npm run icons`      | regenera os ícones do PWA                             |
@@ -106,18 +112,29 @@ Atalhos:
 
 ## 3. Configuração do Supabase (banco real)
 
+### Instalação limpa (projeto novo)
+
 1. Crie um projeto em <https://supabase.com> (grátis).
 2. No **SQL Editor**, execute **nesta ordem**:
-   1. `database/schema.sql` — tabelas, enums, índices, constraints, triggers anti-fraude e as
-      funções `leaderboard()`, `player_rank()`, `global_stats()` e `player_stats()`;
-   2. `database/seed.sql` — as 20 perguntas e as 7 conquistas;
+   1. `database/schema.sql` — tabela `books`, `book_id` em perguntas/partidas/conquistas,
+      triggers anti-fraude e as funções `leaderboard(p_book, …)`, `player_rank()`,
+      `global_stats(p_book)` e `player_stats()`;
+   2. `database/seed_books.sql` — os 3 livros, as 150 perguntas e as 21 conquistas;
    3. `database/rls.sql` — Row Level Security + policies (leituras públicas, escrita bloqueada).
 3. Em **Project Settings → API**, copie:
    * `Project URL` → `SUPABASE_URL`
    * `service_role` (**secret**) → `SUPABASE_SERVICE_ROLE_KEY` (somente no backend!)
-   * `anon public` → `SUPABASE_ANON_KEY` (informativo na v1.0)
+   * `anon public` → `SUPABASE_ANON_KEY` (informativo)
 4. No `backend/.env`, defina `DB_DRIVER=supabase`.
 5. Reinicie o backend: `npm run dev:backend`.
+
+### Migração da produção v1 (Daniel) → v2
+
+1. Faça backup (`pg_dump`) do projeto atual.
+2. Execute no SQL Editor: `database/migracoes/2026-09-14_multi_book.sql` (cria `books`,
+   adiciona `book_id`, preserva o histórico antigo como livro `daniel` inativo), depois
+   `database/seed_books.sql` e `database/rls.sql`.
+3. Confira com os `SELECT` de verificação no final da migração.
 
 > O driver `local` (padrão do `.env.example`) roda sem banco externo, persistindo em
 > `backend/data/local-db.json` — ideal para desenvolvimento e para a suíte de testes.
@@ -139,7 +156,7 @@ Detalhes completos (RLS, admin, backup, migrações futuras): **`docs/SUPABASE.m
 | `LOCAL_DB_FILE`             | `./data/local-db.json` | Arquivo do driver local                                       |
 | `SUPABASE_URL`              | —                 | URL do projeto                                                    |
 | `SUPABASE_SERVICE_ROLE_KEY` | —                 | **secret** — nunca vai para o frontend                            |
-| `SUPABASE_ANON_KEY`         | —                 | informativa (v1.0 não usa no navegador)                           |
+| `SUPABASE_ANON_KEY`         | —                 | informativa (frontend só fala com a API)                          |
 | `TOKEN_SECRET`              | —                 | segredo HMAC dos tokens de sessão (gere com `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) |
 | `ADMIN_TOKEN`               | —                 | token da área `/admin`                                            |
 | `RATE_WINDOW_MINUTES` / `RATE_MAX` | `15` / `400` | rate limit geral                                            |
@@ -178,9 +195,10 @@ Fluxo manual rápido (sem interface):
 
 ```bash
 TOKEN=$(curl -s -X POST localhost:8787/api/users -H 'content-type: application/json' \
-  -d '{"name":"Daniel","nickname":"daniel"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+  -d '{"name":"Maria","nickname":"maria"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
 curl -s -X POST localhost:8787/api/quiz/start -H "authorization: Bearer $TOKEN" \
-  -H 'content-type: application/json' -d '{"mode":"mixed"}'
+  -H 'content-type: application/json' -d '{"mode":"mixed","book_id":"jonas"}'
+curl -s 'localhost:8787/api/ranking?book_id=jonas'
 ```
 
 ---
@@ -189,16 +207,19 @@ curl -s -X POST localhost:8787/api/quiz/start -H "authorization: Bearer $TOKEN" 
 
 ```bash
 cd quiz-daniel/backend
-npm test          # 85 testes: regras, pontuação, anti-fraude, ranking, admin…
+npm test          # 92 testes: regras, pontuação, anti-fraude, ranking, admin…
 ```
 
-Cobertura funcional (detalhes em `docs/TESTES.md`): cadastro · início de partida · resposta
-correta · resposta incorreta · resposta duplicada · ordem das questões · finalização ·
-pontuação oficial · imutabilidade da partida · ranking (critérios e filtros) · histórico ·
-perfil · conquistas · estatísticas · administração · rate limit · tentativas de manipulação.
+Cobertura funcional (detalhes em `docs/TESTES.md`): catálogo de livros · cadastro · início de
+partida por livro (`book_id` obrigatório) · isolamento entre livros (partidas paralelas, resposta
+de outro livro rejeitada e auditada) · resposta correta/incorreta/duplicada · ordem das questões ·
+finalização · pontuação oficial · imutabilidade da partida · ranking por livro (critérios e
+filtros) · histórico com filtro · perfil com ranks por livro · conquistas por livro · estatísticas
+globais e por livro · administração com `book_id` e capítulo por livro · rate limit · tentativas de
+manipulação.
 
-Teste manual no navegador: cadastre-se, jogue uma partida completa, confira o resultado, o
-ranking, o histórico, o perfil com gráfico e a área `/admin` (token do `.env`).
+Teste manual no navegador: escolha um livro na home, jogue uma partida completa, confira o
+resultado, o ranking do livro, o histórico, o perfil com gráfico e a área `/admin` (token do `.env`).
 
 ---
 
@@ -211,6 +232,7 @@ Guia completo em **`docs/DEPLOY.md`**. Resumo:
 * **Backend (Render/Railway):** root `backend/`, comando `npm start`, defina
   `NODE_ENV=production`, `DB_DRIVER=supabase`, credenciais do Supabase, `TOKEN_SECRET`,
   `ADMIN_TOKEN` e `CORS_ORIGIN=https://seu-app.vercel.app`.
+* **Banco:** aplique a migração v1→v2 (seção 3) antes de publicar o backend novo.
 * **Alternativa monolítica:** `npm run build` e o backend serve `frontend/dist` na mesma
   origem (CORS desaparece e o PWA fica perfeito).
 * **HTTPS:** automático na Vercel/Render. O PWA e o `navigator.share` exigem HTTPS.
@@ -221,7 +243,7 @@ Guia completo em **`docs/DEPLOY.md`**. Resumo:
 
 Duas opções:
 
-1. **Token de configuração (recomendado na v1.0):** defina `ADMIN_TOKEN=<valor forte>` no
+1. **Token de configuração (recomendado):** defina `ADMIN_TOKEN=<valor forte>` no
    backend. Na tela `/admin`, cole esse token. Ele vale para a interface e para chamadas
    diretas (`Authorization: Bearer <ADMIN_TOKEN>`).
 2. **Administração por banco:** rode `npm run make-admin -- --nickname "SeuApelido"`,
@@ -235,13 +257,13 @@ Duas opções:
 * **Supabase (produção):** Dashboard → Database → Backups (automáticos no plano pago) ou
   `supabase db dump` / `pg_dump` com a connection string do painel:
   ```bash
-  pg_dump "$DATABASE_URL" --format=custom --file=quiz-daniel-$(date +%F).dump
+  pg_dump "$DATABASE_URL" --format=custom --file=quiz-biblico-$(date +%F).dump
   # restauração:
-  pg_restore --clean --if-exists -d "$DATABASE_URL" quiz-daniel-2026-09-02.dump
+  pg_restore --clean --if-exists -d "$DATABASE_URL" quiz-biblico-2026-09-14.dump
   ```
 * **Driver local (dev):** o banco é o arquivo `backend/data/local-db.json` — copie-o.
 
-Rotina sugerida: dump diário + versão do `schema.sql`/`seed.sql` no repositório.
+Rotina sugerida: dump diário + `schema.sql`/`seed_books.sql`/migrações versionados no repositório.
 
 ---
 
@@ -249,12 +271,15 @@ Rotina sugerida: dump diário + versão do `schema.sql`/`seed.sql` no repositór
 
 | Item                          | Valor                                                       |
 | ----------------------------- | ----------------------------------------------------------- |
-| Questões por partida (mixed)  | 20 (6 fáceis · 8 médias · 6 difíceis)                        |
+| Livros                        | Oséias (14 cap.) · Obadias (1 cap.) · Jonas (4 cap.)         |
+| Perguntas por livro           | 50 (15 fáceis · 20 médias · 15 difíceis)                     |
+| Questões por partida (mixed)  | 20 (6 fáceis · 8 médias · 6 difíceis) **do mesmo livro**     |
 | Pontos por acerto             | fácil 100 · médio 200 · difícil 300                          |
 | Bônus de aproveitamento       | 100% → +500 · 90–99% → +300 · 80–89% → +150                  |
 | Pontuação negativa            | não existe                                                   |
 | Máximo teórico (6/8/6)        | 4.000 de base + 500 de bônus = **4.500**                     |
-| Critério de ranking           | pontos → percentual → acertos → resultado mais recente       |
+| Ranking                       | **separado por livro**; pontos → percentual → acertos → recência |
+| Conquistas                    | 7 por livro (21 no total), desbloqueio por livro             |
 | Duração oficial               | relógio do servidor (`finished_at − started_at`)             |
 | Partida finalizada            | imutável (constraint + trigger no banco)                     |
 | Resposta por questão          | única (constraint `unique(attempt_id, question_id)`)         |
@@ -270,13 +295,14 @@ dificuldades reais das questões erradas.
 
 | Versão | Entrega                                                          | Estado        |
 | ------ | ---------------------------------------------------------------- | ------------- |
-| v1.0   | quiz + cadastro + ranking + histórico                             | ✅ incluído    |
-| v1.1   | conquistas + estatísticas + PWA                                   | ✅ incluído    |
-| v1.2   | login Google/e-mail (campos `email`/`auth_id` + policies prontos) | 🔜 preparado   |
-| v1.3   | quiz diário (base: `quiz_attempts.mode` + agendador)              | 🔜 preparado   |
-| v1.4   | desafios entre jogadores                                          | 🔜 preparado   |
-| v1.5   | ranking por grupos                                                | 🔜 preparado   |
-| v2.0   | multiplayer em tempo real                                         | 🔜 preparado   |
+| v1.0   | quiz Daniel + cadastro + ranking + histórico                      | ✅ entregue    |
+| v1.1   | conquistas + estatísticas + PWA                                   | ✅ entregue    |
+| v2.0   | **multi-livro**: Oséias + Obadias + Jonas, ranking/conquistas por livro | ✅ incluído |
+| v2.1   | login Google/e-mail (campos `email`/`auth_id` + policies prontos) | 🔜 preparado   |
+| v2.2   | quiz diário (base: `quiz_attempts.mode` + agendador)              | 🔜 preparado   |
+| v2.3   | desafios entre jogadores                                          | 🔜 preparado   |
+| v2.4   | ranking por grupos                                                | 🔜 preparado   |
+| v3.0   | multiplayer em tempo real                                         | 🔜 preparado   |
 
 ---
 
@@ -287,5 +313,5 @@ dificuldades reais das questões erradas.
 * “Excluir minha conta” oferece **anonimizar** (preserva agregados) ou **apagar tudo**.
 * Partidas em andamento nunca são públicas; o RLS bloqueia escrita anônima no banco.
 
-Feito com ❤️ para quem ama o livro de Daniel. “Bem-aventurado o que espera e chega até mil
-trezentos e trinta e cinco dias.” (Dn 12:12)
+Feito com ❤️ para quem ama a Palavra. “Conheçamos e prossigamos em conhecer o Senhor.”
+(Os 6:3)

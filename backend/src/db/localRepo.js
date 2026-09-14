@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { BOOKS } from '../utils/books.js';
 
 /**
  * Repositório LOCAL (em memória + persistência opcional em JSON).
@@ -12,6 +13,9 @@ import path from 'node:path';
  *
  * Em produção usa-se DB_DRIVER=supabase. As regras de negócio vivem em
  * `services/` e são idênticas nos dois modos.
+ *
+ * MULTI-LIVRO: perguntas, partidas, conquistas, ranking, histórico e
+ * estatísticas são separados por `book_id` ('oseias' | 'obadias' | 'jonas').
  */
 
 const nowIso = () => new Date().toISOString();
@@ -19,6 +23,7 @@ const nowIso = () => new Date().toISOString();
 function emptyState() {
   return {
     users: [],
+    books: [],
     questions: [],
     quiz_attempts: [],
     quiz_answers: [],
@@ -27,6 +32,11 @@ function emptyState() {
     admin_tokens: [],
     audit_log: [],
   };
+}
+
+/** Livro de uma partida/questão, com retaguarda para registros legados. */
+function bookOf(row) {
+  return row?.book_id || 'daniel';
 }
 
 export function createLocalRepo({ file = null, seed = null } = {}) {
@@ -72,10 +82,11 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
   }
 
   /* ------------------------------------------------------------ leaderboard */
-  function leaderboard({ period = 'all', mode = 'all', limit = 100, offset = 0 } = {}) {
+  function leaderboard({ bookId = null, period = 'all', mode = 'all', limit = 100, offset = 0 } = {}) {
     const start = periodStart(period);
     const filtered = state.quiz_attempts.filter((a) => {
       if (a.status !== 'FINISHED' || !(a.total_questions > 0)) return false;
+      if (bookId && bookOf(a) !== bookId) return false;
       if (start && new Date(a.finished_at) < start) return false;
       if (mode !== 'all' && a.mode !== mode) return false;
       const user = state.users.find((u) => u.id === a.user_id);
@@ -127,24 +138,135 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
     return new Date(y.last_played_at) - new Date(x.last_played_at);
   }
 
+  /* ----------------------------------------------------------------- stats */
+  function scopedFinished(bookId) {
+    return state.quiz_attempts.filter(
+      (a) => a.status === 'FINISHED' && (!bookId || bookOf(a) === bookId),
+    );
+  }
+
+  function scopedAnswers(bookId) {
+    if (!bookId) return state.quiz_answers;
+    const attemptIds = new Set(scopedFinished(bookId).map((a) => a.id));
+    const startedIds = new Set(
+      state.quiz_attempts.filter((a) => bookOf(a) === bookId).map((a) => a.id),
+    );
+    void attemptIds;
+    return state.quiz_answers.filter((answer) => startedIds.has(answer.attempt_id));
+  }
+
+  function questionStatsFor(bookId) {
+    const perQuestion = new Map();
+    for (const answer of scopedAnswers(bookId)) {
+      const entry = perQuestion.get(answer.question_id) || { correct: 0, wrong: 0 };
+      if (answer.is_correct) entry.correct += 1;
+      else entry.wrong += 1;
+      perQuestion.set(answer.question_id, entry);
+    }
+    return [...perQuestion.entries()].map(([questionId, s]) => {
+      const question = state.questions.find((q) => q.id === questionId);
+      const totalAnswers = s.correct + s.wrong;
+      return {
+        question_id: questionId,
+        book_id: question ? bookOf(question) : null,
+        text: question ? question.question : '(questão removida)',
+        chapter: question ? question.chapter : null,
+        correct: s.correct,
+        wrong: s.wrong,
+        accuracy: totalAnswers ? Math.round((s.correct / totalAnswers) * 1000) / 10 : 0,
+      };
+    });
+  }
+
+  function buildGlobalStats(bookId) {
+    const finished = scopedFinished(bookId);
+    const avg = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
+    const questionStats = questionStatsFor(bookId);
+    const players = bookId
+      ? new Set(finished.map((a) => a.user_id)).size
+      : state.users.length;
+
+    return {
+      book_id: bookId || null,
+      total_players: players,
+      total_attempts: finished.length,
+      total_answers: scopedAnswers(bookId).length,
+      total_questions: state.questions.filter(
+        (q) => q.active !== false && (!bookId || bookOf(q) === bookId),
+      ).length,
+      best_score: finished.length ? Math.max(...finished.map((a) => a.score)) : 0,
+      best_percentage: finished.length ? Math.max(...finished.map((a) => Number(a.percentage))) : 0,
+      avg_score: Math.round(avg(finished.map((a) => a.score))),
+      avg_correct: Math.round(avg(finished.map((a) => a.correct_answers)) * 10) / 10,
+      avg_percentage: Math.round(avg(finished.map((a) => Number(a.percentage))) * 10) / 10,
+      most_correct_question: [...questionStats].sort((a, b) => b.accuracy - a.accuracy).slice(0, 5),
+      most_wrong_question: [...questionStats].sort((a, b) => b.wrong - a.wrong).slice(0, 5),
+    };
+  }
+
+  function buildPlayerStats(userId, bookId) {
+    const finished = state.quiz_attempts.filter(
+      (a) => a.user_id === userId && a.status === 'FINISHED' && (!bookId || bookOf(a) === bookId),
+    );
+    const avg = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
+    return {
+      book_id: bookId || null,
+      attempts: finished.length,
+      total_correct: finished.reduce((s, a) => s + a.correct_answers, 0),
+      total_wrong: finished.reduce((s, a) => s + a.wrong_answers, 0),
+      best_score: finished.length ? Math.max(...finished.map((a) => a.score)) : 0,
+      best_percentage: finished.length ? Math.max(...finished.map((a) => Number(a.percentage))) : 0,
+      avg_score: Math.round(avg(finished.map((a) => a.score))),
+      avg_correct: Math.round(avg(finished.map((a) => a.correct_answers)) * 10) / 10,
+      total_duration: finished.reduce((s, a) => s + (a.duration_seconds || 0), 0),
+      last_attempt_at: finished.length
+        ? finished.map((a) => a.finished_at).sort().at(-1)
+        : null,
+      evolution: [...finished]
+        .sort((a, b) => new Date(a.finished_at) - new Date(b.finished_at))
+        .slice(-30)
+        .map((a) => ({
+          book_id: bookOf(a),
+          date: new Date(a.finished_at).toLocaleDateString('pt-BR'),
+          score: a.score,
+          percentage: Number(a.percentage),
+          correct: a.correct_answers,
+          total: a.total_questions,
+        })),
+    };
+  }
+
   const repo = {
     driver: 'local',
 
     /* ------------------------------------------------------------ HEALTH */
     async health() {
+      const active = state.questions.filter((q) => q.active !== false);
+      const perBook = {};
+      for (const book of BOOKS) {
+        perBook[book.id] = active.filter((q) => bookOf(q) === book.id).length;
+      }
       return {
         driver: 'local',
         ok: true,
         counts: {
           users: state.users.length,
-          questions: state.questions.filter((q) => q.active !== false).length,
+          questions: active.length,
           attempts: state.quiz_attempts.length,
           answers: state.quiz_answers.length,
         },
+        questions_per_book: perBook,
       };
     },
 
-    async ensureSeed(questions, achievements) {
+    async ensureSeed(questions, achievements, books = BOOKS) {
+      if (books?.length) {
+        for (const book of books) {
+          if (!state.books.some((b) => b.id === book.id)) {
+            state.books.push({ ...book, active: true });
+          }
+        }
+      }
       if (!state.questions.length && questions?.length) {
         state.questions.push(
           ...questions.map((q) => ({
@@ -163,7 +285,34 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
         );
       }
       persist();
-      return { questions: state.questions.length, achievements: state.achievements.length };
+      return { books: state.books.length, questions: state.questions.length, achievements: state.achievements.length };
+    },
+
+    /* ------------------------------------------------------------- BOOKS */
+    async listBooks() {
+      const catalog = state.books.length ? state.books : BOOKS.map((b) => ({ ...b, active: true }));
+      return catalog
+        .filter((b) => b.active !== false)
+        .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+        .map((book) => {
+          const questions = state.questions.filter(
+            (q) => q.active !== false && bookOf(q) === book.id,
+          );
+          const finished = state.quiz_attempts.filter(
+            (a) => a.status === 'FINISHED' && bookOf(a) === book.id,
+          );
+          return {
+            ...book,
+            questions: {
+              total: questions.length,
+              facil: questions.filter((q) => q.difficulty === 'facil').length,
+              medio: questions.filter((q) => q.difficulty === 'medio').length,
+              dificil: questions.filter((q) => q.difficulty === 'dificil').length,
+            },
+            total_attempts: finished.length,
+            best_score: finished.length ? Math.max(...finished.map((a) => a.score)) : 0,
+          };
+        });
     },
 
     /* ------------------------------------------------------------- USERS */
@@ -264,16 +413,16 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
     },
 
     /* ---------------------------------------------------------- QUESTIONS */
-    async listActiveQuestions() {
+    async listActiveQuestions({ bookId = null } = {}) {
       return state.questions
-        .filter((q) => q.active !== false)
+        .filter((q) => q.active !== false && (!bookId || bookOf(q) === bookId))
         .map((q) => ({ ...q }))
         .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0) || a.chapter - b.chapter);
     },
 
-    async listQuestions({ includeInactive = true } = {}) {
+    async listQuestions({ includeInactive = true, bookId = null } = {}) {
       return state.questions
-        .filter((q) => includeInactive || q.active !== false)
+        .filter((q) => (includeInactive || q.active !== false) && (!bookId || bookOf(q) === bookId))
         .map((q) => ({ ...q }))
         .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
     },
@@ -286,7 +435,7 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
       const question = {
         id: crypto.randomUUID(),
         active: true,
-        order_index: state.questions.length + 1,
+        order_index: state.questions.filter((q) => bookOf(q) === bookOf(data)).length + 1,
         created_at: nowIso(),
         updated_at: nowIso(),
         ...data,
@@ -326,6 +475,7 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
         status: 'STARTED',
         mode: 'mixed',
         difficulty: 'mixed',
+        book_id: null,
         score: 0,
         base_score: 0,
         bonus_score: 0,
@@ -351,10 +501,12 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
       return state.quiz_attempts.find((a) => a.id === id) || null;
     },
 
-    async getActiveAttempt(userId) {
-      return (
-        state.quiz_attempts.find((a) => a.user_id === userId && a.status === 'STARTED') || null
+    async getActiveAttempt(userId, bookId = null) {
+      const actives = state.quiz_attempts.filter(
+        (a) => a.user_id === userId && a.status === 'STARTED' && (!bookId || bookOf(a) === bookId),
       );
+      actives.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+      return actives[0] || null;
     },
 
     async updateAttempt(id, patch) {
@@ -445,17 +597,20 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
     },
 
     /* ------------------------------------------------------- ACHIEVEMENTS */
-    async listAchievements() {
-      return state.achievements.map((a) => ({ ...a }));
+    async listAchievements({ bookId = null } = {}) {
+      return state.achievements
+        .filter((a) => !bookId || a.book_id === bookId || a.book_id == null)
+        .map((a) => ({ ...a }));
     },
 
-    async listUserAchievements(userId) {
+    async listUserAchievements(userId, { bookId = null } = {}) {
       return state.user_achievements
         .filter((ua) => ua.user_id === userId)
         .map((ua) => {
           const achievement = state.achievements.find((a) => a.id === ua.achievement_id);
           return { ...ua, ...(achievement || {}) };
         })
+        .filter((row) => !bookId || row.book_id === bookId)
         .sort((a, b) => new Date(b.unlocked_at) - new Date(a.unlocked_at));
     },
 
@@ -508,8 +663,8 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
       return leaderboard(params);
     },
 
-    async playerRank({ userId, period = 'all', mode = 'all' }) {
-      const rows = leaderboard({ period, mode, limit: 500, offset: 0 });
+    async playerRank({ userId, bookId = null, period = 'all', mode = 'all' }) {
+      const rows = leaderboard({ bookId, period, mode, limit: 500, offset: 0 });
       const me = rows.find((row) => row.user_id === userId);
       const total = rows.length;
       if (!me) return { rank: 0, total_players: total, beaten_percentage: 0 };
@@ -518,80 +673,27 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
     },
 
     /* ----------------------------------------------------------- STATS */
-    async globalStats() {
-      const finished = state.quiz_attempts.filter((a) => a.status === 'FINISHED');
-      const avg = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
-
-      const perQuestion = new Map();
-      for (const answer of state.quiz_answers) {
-        const entry = perQuestion.get(answer.question_id) || { correct: 0, wrong: 0 };
-        if (answer.is_correct) entry.correct += 1;
-        else entry.wrong += 1;
-        perQuestion.set(answer.question_id, entry);
+    async globalStats({ bookId = null } = {}) {
+      const stats = buildGlobalStats(bookId);
+      if (!bookId) {
+        stats.per_book = Object.fromEntries(BOOKS.map((b) => [b.id, buildGlobalStats(b.id)]));
       }
-
-      const questionStats = [...perQuestion.entries()].map(([questionId, s]) => {
-        const question = state.questions.find((q) => q.id === questionId);
-        const totalAnswers = s.correct + s.wrong;
-        return {
-          question_id: questionId,
-          text: question ? question.question : '(questão removida)',
-          chapter: question ? question.chapter : null,
-          correct: s.correct,
-          wrong: s.wrong,
-          accuracy: totalAnswers ? Math.round((s.correct / totalAnswers) * 1000) / 10 : 0,
-        };
-      });
-
-      return {
-        total_players: state.users.length,
-        total_attempts: finished.length,
-        total_answers: state.quiz_answers.length,
-        total_questions: state.questions.filter((q) => q.active !== false).length,
-        best_score: finished.length ? Math.max(...finished.map((a) => a.score)) : 0,
-        best_percentage: finished.length ? Math.max(...finished.map((a) => Number(a.percentage))) : 0,
-        avg_score: Math.round(avg(finished.map((a) => a.score))),
-        avg_correct: Math.round(avg(finished.map((a) => a.correct_answers)) * 10) / 10,
-        avg_percentage: Math.round(avg(finished.map((a) => Number(a.percentage))) * 10) / 10,
-        most_correct_question: [...questionStats].sort((a, b) => b.accuracy - a.accuracy).slice(0, 5),
-        most_wrong_question: [...questionStats].sort((a, b) => b.wrong - a.wrong).slice(0, 5),
-      };
+      return stats;
     },
 
-    async playerStats(userId) {
-      const finished = state.quiz_attempts.filter(
-        (a) => a.user_id === userId && a.status === 'FINISHED',
-      );
-      const avg = (list) => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : 0);
-      return {
-        attempts: finished.length,
-        total_correct: finished.reduce((s, a) => s + a.correct_answers, 0),
-        total_wrong: finished.reduce((s, a) => s + a.wrong_answers, 0),
-        best_score: finished.length ? Math.max(...finished.map((a) => a.score)) : 0,
-        best_percentage: finished.length ? Math.max(...finished.map((a) => Number(a.percentage))) : 0,
-        avg_score: Math.round(avg(finished.map((a) => a.score))),
-        avg_correct: Math.round(avg(finished.map((a) => a.correct_answers)) * 10) / 10,
-        total_duration: finished.reduce((s, a) => s + (a.duration_seconds || 0), 0),
-        last_attempt_at: finished.length
-          ? finished.map((a) => a.finished_at).sort().at(-1)
-          : null,
-        evolution: [...finished]
-          .sort((a, b) => new Date(a.finished_at) - new Date(b.finished_at))
-          .slice(-30)
-          .map((a) => ({
-            date: new Date(a.finished_at).toLocaleDateString('pt-BR'),
-            score: a.score,
-            percentage: Number(a.percentage),
-            correct: a.correct_answers,
-            total: a.total_questions,
-          })),
-      };
+    async playerStats(userId, { bookId = null } = {}) {
+      const stats = buildPlayerStats(userId, bookId);
+      if (!bookId) {
+        stats.per_book = Object.fromEntries(BOOKS.map((b) => [b.id, buildPlayerStats(userId, b.id)]));
+      }
+      return stats;
     },
 
-    async listAttempts({ limit = 50, offset = 0, userId = null, status = null } = {}) {
+    async listAttempts({ limit = 50, offset = 0, userId = null, status = null, bookId = null } = {}) {
       let rows = [...state.quiz_attempts];
       if (userId) rows = rows.filter((a) => a.user_id === userId);
       if (status) rows = rows.filter((a) => a.status === status);
+      if (bookId) rows = rows.filter((a) => bookOf(a) === bookId);
       rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       const items = rows.slice(offset, offset + limit).map((attempt) => {
         const user = state.users.find((u) => u.id === attempt.user_id);
@@ -600,9 +702,9 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
       return { total: rows.length, items };
     },
 
-    async publicRecentAttempts({ limit = 30 } = {}) {
+    async publicRecentAttempts({ limit = 30, bookId = null } = {}) {
       return state.quiz_attempts
-        .filter((a) => a.status === 'FINISHED')
+        .filter((a) => a.status === 'FINISHED' && (!bookId || bookOf(a) === bookId))
         .filter((a) => {
           const user = state.users.find((u) => u.id === a.user_id);
           return Boolean(user) && user.share_profile !== false;
@@ -612,6 +714,7 @@ export function createLocalRepo({ file = null, seed = null } = {}) {
         .map((a) => {
           const user = state.users.find((u) => u.id === a.user_id);
           return {
+            book_id: bookOf(a),
             nickname: user.nickname,
             score: a.score,
             correct_answers: a.correct_answers,

@@ -1,8 +1,8 @@
 {
-  "name": "quiz-daniel",
-  "version": "1.0.0",
+  "name": "quiz-biblico",
+  "version": "2.0.0",
   "private": true,
-  "description": "Quiz Bíblico — Daniel: quiz com usuários, ranking, histórico, conquistas, estatísticas, admin e PWA (React + Node/Express + Supabase/PostgreSQL)",
+  "description": "Quiz Bíblico: plataforma multi-livro (Oséias, Obadias, Jonas) com usuários, ranking, histórico, conquistas, estatísticas, admin e PWA (React + Node/Express + Supabase/PostgreSQL)",
   "scripts": {
     "setup": "npm --prefix backend install && npm --prefix frontend install",
     "dev:backend": "npm --prefix backend run dev",

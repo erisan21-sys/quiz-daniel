@@ -65,7 +65,7 @@ export function App() {
       page = (
         <div className="card center">
           <h1 className="page-title">404</h1>
-          <p className="muted">Esta página não existe no Quiz de Daniel.</p>
+          <p className="muted">Esta página não existe no Quiz Bíblico.</p>
           <a className="btn btn-primary" href="#/">Voltar ao início</a>
         </div>
       );

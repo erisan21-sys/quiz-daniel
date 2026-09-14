@@ -27,7 +27,7 @@ export function RegisterPage({ params }) {
     try {
       if (mode === 'new') {
         await register({ name, nickname });
-        notify('Bem-vindo ao Quiz de Daniel! ', 'success');
+        notify('Bem-vindo ao Quiz Bíblico! 🙏', 'success');
       } else {
         await rejoin(nickname);
         notify('Sessão recuperada. Bom jogo! 🎯', 'success');

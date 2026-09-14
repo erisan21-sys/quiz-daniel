@@ -1,9 +1,9 @@
 {
-  "name": "quiz-daniel-frontend",
-  "version": "1.0.0",
+  "name": "quiz-biblico-frontend",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Interface do Quiz Bíblico — Daniel (React + Vite + PWA)",
+  "description": "Interface do Quiz Bíblico (React + Vite + PWA) — multi-livro: Oséias, Obadias, Jonas",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

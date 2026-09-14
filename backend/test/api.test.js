@@ -17,7 +17,7 @@ const correctLetter = (questionId) =>
 const wrongLetter = (questionId) =>
   ['A', 'B', 'C', 'D'].find((l) => l !== correctLetter(questionId));
 
-describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
+describe('API · Quiz Bíblico (multi-livro: Oséias · Obadias · Jonas)', { concurrency: 1 }, () => {
   let api;
 
   beforeEach(async () => {
@@ -38,7 +38,18 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, true);
     assert.equal(res.body.db.driver, 'local');
-    assert.equal(res.body.db.counts.questions, 20);
+    assert.equal(res.body.db.counts.questions, 150);
+    assert.deepEqual(res.body.db.questions_per_book, { oseias: 50, obadias: 50, jonas: 50 });
+  });
+
+  test('GET /api/books lista os 3 livros ativos da plataforma', async () => {
+    const res = await api.get('/api/books');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.total, 3);
+    assert.deepEqual(res.body.items.map((b) => b.id), ['oseias', 'obadias', 'jonas']);
+    assert.deepEqual(res.body.items.map((b) => b.chapters).sort((a, b) => a - b), [1, 4, 14]);
+    assert.ok(res.body.items.every((b) => b.active && b.questions.total === 50));
+    assert.deepEqual(res.body.items[0].questions, { total: 50, facil: 15, medio: 20, dificil: 15 });
   });
 
   test('GET /api lista os endpoints da API', async () => {
@@ -100,14 +111,27 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
   });
 
   /* ------------------------------------------------------ início de partida */
+  test('start: exige book_id válido', async () => {
+    const { token } = await api.register();
+
+    assert.equal((await api.start(token, { bookId: 'daniel' })).status, 400);
+    assert.equal((await api.post('/api/quiz/start', { mode: 'mixed' }, { token })).status, 400);
+    const ok = await api.start(token, { bookId: 'obadias' });
+    assert.equal(ok.status, 201);
+    assert.equal(ok.body.book.id, 'obadias');
+  });
+
   test('start: cria partida com 20 questões na distribuição 6/8/6', async () => {
     const { token } = await api.register();
-    const res = await api.start(token);
+    const res = await api.start(token, { bookId: 'jonas' });
 
     assert.equal(res.status, 201);
     assert.equal(res.body.resumed, false);
+    assert.equal(res.body.book.id, 'jonas');
     assert.equal(res.body.questions.length, 20);
+    assert.ok(res.body.questions.every((q) => q.book_id === 'jonas'));
     assert.equal(res.body.attempt.status, 'STARTED');
+    assert.equal(res.body.attempt.book_id, 'jonas');
     assert.equal(res.body.attempt.total_questions, 20);
     assert.equal(res.body.attempt.mode, 'mixed');
 
@@ -139,10 +163,11 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
 
   test('start: modo por dificuldade filtra as questões', async () => {
     const { token } = await api.register();
-    const res = await api.start(token, { mode: 'dificil' });
+    const res = await api.start(token, { mode: 'dificil', bookId: 'obadias' });
     assert.equal(res.status, 201);
-    assert.ok(res.body.questions.every((q) => q.difficulty === 'dificil'));
-    assert.equal(res.body.questions.length, 6);
+    assert.equal(res.body.book.id, 'obadias');
+    assert.ok(res.body.questions.every((q) => q.difficulty === 'dificil' && q.book_id === 'obadias'));
+    assert.equal(res.body.questions.length, 15);
     assert.equal(res.body.attempt.mode, 'dificil');
   });
 
@@ -154,6 +179,20 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.equal(second.body.resumed, true);
     assert.equal(second.body.attempt.id, first.body.attempt.id);
     assert.equal(second.body.attempt.next_position, 1);
+  });
+
+  test('isolamento: pode jogar livros diferentes em paralelo sem misturar', async () => {
+    const { token } = await api.register();
+    const oseias = await api.start(token, { bookId: 'oseias' });
+    const jonas = await api.start(token, { bookId: 'jonas' });
+
+    assert.equal(oseias.status, 201);
+    assert.equal(jonas.status, 201);
+    assert.notEqual(jonas.body.attempt.id, oseias.body.attempt.id);
+
+    const resume = await api.start(token, { bookId: 'oseias' });
+    assert.equal(resume.body.resumed, true);
+    assert.equal(resume.body.attempt.id, oseias.body.attempt.id);
   });
 
   /* ------------------------------------------------------------- respostas */
@@ -209,6 +248,26 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     const res = await api.answer(token, body.attempt.id, second.id, correctLetter(second.id));
     assert.equal(res.status, 409);
     assert.match(res.body.error, /ordem/);
+  });
+
+  test('resposta de outro livro na mesma partida é rejeitada e auditada', async () => {
+    const { token } = await api.register();
+    const started = await api.start(token, { bookId: 'oseias' });
+    const attemptId = started.body.attempt.id;
+    const catalog = await api.get('/api/questions?book_id=jonas');
+    const foreign = catalog.body.items[0];
+
+    // Simula dado adulterado: questão de Jonas injetada na ordem de Oséias.
+    const row = api.repo._state.quiz_attempts.find((a) => a.id === attemptId);
+    row.question_order[0] = foreign.id;
+
+    const res = await api.answer(token, attemptId, foreign.id, 'A');
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /outro livro/);
+
+    const audit = api.repo._state.audit_log.filter((l) => l.action === 'FRAUD_BOOK_MISMATCH');
+    assert.equal(audit.length, 1);
+    assert.equal(audit[0].detail.question_book, 'jonas');
   });
 
   test('questão que não pertence à partida é bloqueada (400) e auditada', async () => {
@@ -302,7 +361,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.ok(result.duration_seconds >= 0);
     assert.equal(result.nickname, 'jogador_oficial');
     assert.equal(result.review.length, 20);
-    assert.match(result.share_message, /📖 Quiz Bíblico — Daniel/);
+    assert.match(result.share_message, /📖 Quiz Bíblico — Oséias/);
     assert.match(result.share_message, new RegExp(`👤 Jogador: ${user.nickname}`));
     assert.match(result.share_message, /🎯 Resultado: 18\/20/);
     assert.equal(result.rank, 1);
@@ -321,11 +380,11 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.equal(result.score, 4500);
 
     const codes = result.achievements.filter((a) => a.unlocked).map((a) => a.code);
-    assert.ok(codes.includes('FIRST_GAME'));
-    assert.ok(codes.includes('PERFECT_SCORE'));
-    assert.ok(codes.includes('FIRST_PLACE'));
-    assert.ok(codes.includes('TOP_TEN'));
-    assert.ok(!codes.includes('FIVE_GAMES'));
+    assert.ok(codes.includes('OSEIAS_FIRST_GAME'));
+    assert.ok(codes.includes('OSEIAS_PERFECT_SCORE'));
+    assert.ok(codes.includes('OSEIAS_FIRST_PLACE'));
+    assert.ok(codes.includes('OSEIAS_TOP_TEN'));
+    assert.ok(!codes.includes('OSEIAS_FIVE_GAMES'));
   });
 
   test('finalizar sem responder nada marca a partida como ABANDONED', async () => {
@@ -421,6 +480,30 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
   });
 
   /* -------------------------------------------------------------- ranking */
+  test('ranking exige book_id e separa partidas por livro', async () => {
+    assert.equal((await api.get('/api/ranking')).status, 400);
+
+    const alice = await api.register({ nickname: 'alice_oseias' });
+    const bob = await api.register({ nickname: 'bob_jonas' });
+    await api.playGame(alice.token, { bookId: 'oseias' });
+    await api.playGame(bob.token, { bookId: 'jonas' });
+
+    const oseias = await api.get('/api/ranking?book_id=oseias');
+    assert.equal(oseias.body.book_id, 'oseias');
+    assert.equal(oseias.body.items.length, 1);
+    assert.equal(oseias.body.items[0].nickname, 'alice_oseias');
+
+    const jonas = await api.get('/api/ranking?book_id=jonas');
+    assert.equal(jonas.body.book_id, 'jonas');
+    assert.equal(jonas.body.items.length, 1);
+    assert.equal(jonas.body.items[0].nickname, 'bob_jonas');
+
+    const inOseias = await api.get('/api/ranking/me?book_id=oseias', { token: alice.token });
+    assert.equal(inOseias.body.rank, 1);
+    const outJonas = await api.get('/api/ranking/me?book_id=jonas', { token: alice.token });
+    assert.equal(outJonas.body.rank, 0);
+  });
+
   test('ranking geral ordena por pontos, percentual, acertos e recência', async () => {
     const players = [];
     for (const nickname of ['alpha', 'bravo', 'charlie']) {
@@ -431,7 +514,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     await api.playGame(players[1].token, { wrongAt: [] }); // 20/20
     await api.playGame(players[2].token, { wrongDifficulties: { medio: 2 } }); // 18/20
 
-    const res = await api.get('/api/ranking');
+    const res = await api.get('/api/ranking?book_id=oseias');
     assert.equal(res.status, 200);
     assert.equal(res.body.items.length, 3);
     assert.equal(res.body.items[0].nickname, 'bravo');
@@ -452,7 +535,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     await api.playGame(token, { wrongAt: [] }); // 20/20
     await api.playGame(token, { wrongDifficulties: { dificil: 3 } }); // 17/20
 
-    const res = await api.get('/api/ranking');
+    const res = await api.get('/api/ranking?book_id=oseias');
     assert.equal(res.body.items.length, 1);
     assert.equal(res.body.items[0].best_correct, 20);
     assert.equal(res.body.items[0].attempts_count, 3);
@@ -469,7 +552,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 25)); // garante recência maior
     await api.playGame(second.token, { wrongDifficulties: { medio: 2 } });
 
-    const res = await api.get('/api/ranking');
+    const res = await api.get('/api/ranking?book_id=oseias');
     assert.equal(res.body.items[0].best_score, res.body.items[1].best_score);
     assert.equal(res.body.items[0].nickname, 'empate_dois');
     assert.equal(res.body.items[0].best_score, 3900);
@@ -479,19 +562,19 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     const { token } = await api.register({ nickname: 'periodos' });
     await api.playGame(token, { wrongAt: [1] });
 
-    for (const path of ['/api/ranking/today', '/api/ranking/week', '/api/ranking/month', '/api/ranking/all']) {
+    for (const path of ['/api/ranking/today?book_id=oseias', '/api/ranking/week?book_id=oseias', '/api/ranking/month?book_id=oseias', '/api/ranking/all?book_id=oseias']) {
       const res = await api.get(path);
       assert.equal(res.status, 200, path);
       assert.equal(res.body.items.length, 1, path);
     }
 
-    const byQuery = await api.get('/api/ranking?period=hoje&difficulty=facil');
+    const byQuery = await api.get('/api/ranking?book_id=oseias&period=hoje&difficulty=facil');
     assert.equal(byQuery.status, 200);
     assert.equal(byQuery.body.period, 'today');
     assert.equal(byQuery.body.mode, 'facil');
     assert.equal(byQuery.body.items.length, 0); // partida era do modo mixed
 
-    const invalid = await api.get('/api/ranking?period=decada');
+    const invalid = await api.get('/api/ranking?book_id=oseias&period=decada');
     assert.equal(invalid.status, 400);
   });
 
@@ -503,20 +586,20 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     await api.playGame(players[2].token, { wrongDifficulties: { medio: 2 } }); // 18 acertos
     await api.playGame(players[3].token, { wrongAt: [] }); // 20 acertos
 
-    const ranking = await api.get('/api/ranking');
+    const ranking = await api.get('/api/ranking?book_id=oseias');
     assert.deepEqual(
       ranking.body.items.map((item) => item.nickname),
       ['rank_3', 'rank_2', 'rank_1', 'rank_0'],
     );
 
-    const res = await api.get('/api/ranking/me', { token: players[2].token });
+    const res = await api.get('/api/ranking/me?book_id=oseias', { token: players[2].token });
     assert.equal(res.status, 200);
     assert.equal(res.body.rank, 2);
     assert.equal(res.body.total_players, 4);
     assert.equal(res.body.beaten_percentage, 66.7);
     assert.equal(res.body.position_label, '2º lugar');
 
-    const last = await api.get('/api/ranking/me', { token: players[0].token });
+    const last = await api.get('/api/ranking/me?book_id=oseias', { token: players[0].token });
     assert.equal(last.body.rank, 4);
     assert.equal(last.body.beaten_percentage, 0);
   });
@@ -538,6 +621,10 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
       assert.equal(item.status, 'FINISHED');
     }
     assert.ok(res.body.items[0].score >= res.body.items[1].score);
+    assert.ok(res.body.items.every((item) => item.book_id === 'oseias'));
+
+    const filtered = await api.get(`/api/users/${user.id}/history?book_id=jonas`);
+    assert.equal(filtered.body.total, 0);
   });
 
   test('histórico público expõe apenas apelido e resultado', async () => {
@@ -554,6 +641,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.ok(!('user_id' in item));
     assert.ok(!('email' in item));
     assert.ok(!('name' in item));
+    assert.equal(item.book_id, 'oseias');
   });
 
   test('detalhe da partida devolve revisão com explicações', async () => {
@@ -568,6 +656,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.ok(wrong.explanation.length > 10);
     assert.ok(wrong.correct_answer);
     assert.equal(res.body.attempt.status, 'FINISHED');
+    assert.equal(res.body.attempt.book_id, 'oseias');
   });
 
   test('partida em andamento não é pública', async () => {
@@ -591,7 +680,9 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.equal(res.body.stats.total_correct, 36);
     assert.ok(res.body.stats.best_score >= res.body.stats.avg_score);
     assert.equal(res.body.stats.evolution.length, 2);
-    assert.ok(res.body.achievements.length >= 7);
+    assert.ok(res.body.achievements.length >= 21);
+    assert.ok(res.body.stats.per_book.oseias.attempts >= 2);
+    assert.equal(res.body.ranks.oseias.rank, 1);
     assert.equal(res.body.history.length, 2);
   });
 
@@ -614,20 +705,24 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     }
     const res = await api.get('/api/users/me/achievements', { token });
     const codes = res.body.items.filter((a) => a.unlocked).map((a) => a.code);
-    assert.ok(codes.includes('FIRST_GAME'));
-    assert.ok(codes.includes('FIVE_GAMES'));
-    assert.ok(!codes.includes('TEN_GAMES'));
-    assert.ok(!codes.includes('PERFECT_SCORE'));
+    assert.ok(codes.includes('OSEIAS_FIRST_GAME'));
+    assert.ok(codes.includes('OSEIAS_FIVE_GAMES'));
+    assert.ok(!codes.includes('OSEIAS_TEN_GAMES'));
+    assert.ok(!codes.includes('OSEIAS_PERFECT_SCORE'));
   });
 
   test('catálogo público de conquistas', async () => {
     const res = await api.get('/api/stats/achievements');
     assert.equal(res.status, 200);
-    assert.equal(res.body.items.length, 7);
+    assert.equal(res.body.items.length, 21);
     const codes = res.body.items.map((a) => a.code);
-    for (const expected of ['FIRST_GAME', 'FIVE_GAMES', 'TEN_GAMES', 'PERFECT_SCORE', 'TOP_TEN', 'FIRST_PLACE', 'DANIEL_EXPERT']) {
+    for (const expected of ['OSEIAS_FIRST_GAME', 'OSEIAS_FIVE_GAMES', 'OSEIAS_TEN_GAMES', 'OSEIAS_PERFECT_SCORE', 'OSEIAS_TOP_TEN', 'OSEIAS_FIRST_PLACE', 'OSEIAS_EXPERT']) {
       assert.ok(codes.includes(expected), expected);
     }
+
+    const jonas = await api.get('/api/stats/achievements?book_id=jonas');
+    assert.equal(jonas.body.items.length, 7);
+    assert.ok(jonas.body.items.every((a) => a.book_id === 'jonas'));
   });
 
   /* ----------------------------------------------------------- estatísticas */
@@ -640,19 +735,32 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.equal(res.body.total_players, 1);
     assert.equal(res.body.total_attempts, 1);
     assert.equal(res.body.total_answers, 20);
-    assert.equal(res.body.total_questions, 20);
+    assert.equal(res.body.total_questions, 150);
     assert.equal(res.body.best_percentage, 95);
     assert.ok(res.body.avg_score > 0);
     assert.equal(res.body.most_wrong_question[0].wrong, 1);
     assert.equal(res.body.recent_attempts.length, 1);
+    assert.equal(res.body.per_book.oseias.total_attempts, 1);
+    assert.equal(res.body.per_book.jonas.total_attempts, 0);
+
+    const scoped = await api.get('/api/stats?book_id=oseias');
+    assert.equal(scoped.body.book_id, 'oseias');
+    assert.equal(scoped.body.total_attempts, 1);
+    assert.equal((await api.get('/api/stats?book_id=daniel')).status, 400);
   });
 
   test('GET /api/questions lista o catálogo sem gabarito', async () => {
     const res = await api.get('/api/questions');
     assert.equal(res.status, 200);
-    assert.equal(res.body.total, 20);
-    assert.deepEqual(res.body.distribution, { facil: 6, medio: 8, dificil: 6 });
+    assert.equal(res.body.total, 150);
+    assert.deepEqual(res.body.distribution, { facil: 45, medio: 60, dificil: 45 });
+    assert.equal(res.body.per_book.jonas.total, 50);
     assert.ok(!JSON.stringify(res.body.items).includes('correct_answer'));
+
+    const jonas = await api.get('/api/questions?book_id=jonas');
+    assert.equal(jonas.body.total, 50);
+    assert.ok(jonas.body.items.every((q) => q.book_id === 'jonas'));
+    assert.equal((await api.get('/api/questions?book_id=daniel')).status, 400);
   });
 
   test('GET /api/quiz/rules publica a tabela de pontuação', async () => {
@@ -661,6 +769,13 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     assert.deepEqual(res.body.points, { facil: 100, medio: 200, dificil: 300 });
     assert.equal(res.body.max_base_score, 4000);
     assert.equal(res.body.quiz_size, 20);
+  });
+
+  test('GET /api/quiz/rules aceita o contexto do livro', async () => {
+    const res = await api.get('/api/quiz/rules?book_id=obadias');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.book.id, 'obadias');
+    assert.equal((await api.get('/api/quiz/rules?book_id=daniel')).status, 400);
   });
 
   /* ---------------------------------------------------------------- admin */
@@ -673,22 +788,24 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
 
     const ok = await api.get('/api/admin/overview', { token: ADMIN_TOKEN });
     assert.equal(ok.status, 200);
-    assert.equal(ok.body.stats.total_questions, 20);
-    assert.deepEqual(ok.body.distribution, { facil: 6, medio: 8, dificil: 6, inativas: 0 });
+    assert.equal(ok.body.stats.total_questions, 150);
+    assert.deepEqual(ok.body.distribution, { facil: 45, medio: 60, dificil: 45, inativas: 0 });
+    assert.equal(ok.body.by_book.obadias.total, 50);
   });
 
   test('admin cadastra, edita e desativa questões', async () => {
     const payload = {
+      book_id: 'oseias',
       chapter: 2,
-      question: 'Quem interpretou o sonho da estátua para Nabucodonosor?',
+      question: 'Quem Deus mandou Oséias tomar por mulher como sinal profético?',
       difficulty: 'medio',
-      option_a: 'Daniel',
-      option_b: 'Ezequiel',
-      option_c: 'Jeremias',
-      option_d: 'Isaías',
+      option_a: 'Gômer',
+      option_b: 'Jezabel',
+      option_c: 'Rute',
+      option_d: 'Ester',
       correct_answer: 'A',
-      explanation: 'Daniel 2:19-25: o mistério foi revelado a Daniel em visão noturna.',
-      hint: 'Ele recebeu o nome babilônico de Beltessazar.',
+      explanation: 'Oséias 1:2-3: Deus ordena que Oséias tome Gômer, filha de Diblaim, por mulher.',
+      hint: 'O nome dela começa com a letra G.',
       source_type: 'texto_biblico',
     };
 
@@ -697,7 +814,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     const id = created.body.question.id;
 
     const catalog = await api.get('/api/questions');
-    assert.equal(catalog.body.total, 21);
+    assert.equal(catalog.body.total, 151);
 
     const updated = await api.put(`/api/admin/questions/${id}`, { difficulty: 'dificil' }, { token: ADMIN_TOKEN });
     assert.equal(updated.status, 200);
@@ -708,10 +825,21 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
 
     const duplicatedOptions = await api.post(
       '/api/admin/questions',
-      { ...payload, option_b: 'Daniel' },
+      { ...payload, option_b: 'Gômer' },
       { token: ADMIN_TOKEN },
     );
     assert.equal(duplicatedOptions.status, 400);
+
+    const noBook = await api.post('/api/admin/questions', { ...payload, book_id: undefined }, { token: ADMIN_TOKEN });
+    assert.equal(noBook.status, 400);
+
+    const badChapter = await api.post(
+      '/api/admin/questions',
+      { ...payload, book_id: 'obadias', chapter: 2 },
+      { token: ADMIN_TOKEN },
+    );
+    assert.equal(badChapter.status, 400);
+    assert.match(badChapter.body.error, /capítulo/);
 
     const removed = await api.del(`/api/admin/questions/${id}`, { token: ADMIN_TOKEN });
     assert.equal(removed.status, 200);
@@ -730,7 +858,7 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     const attempts = await api.get('/api/admin/attempts', { token: ADMIN_TOKEN });
     assert.equal(attempts.body.items.length, 1);
 
-    const ranking = await api.get('/api/admin/ranking', { token: ADMIN_TOKEN });
+    const ranking = await api.get('/api/admin/ranking?book_id=oseias', { token: ADMIN_TOKEN });
     assert.equal(ranking.body.items.length, 1);
 
     const role = await api.patch(`/api/admin/users/${users.body.items[0].id}/role`, { role: 'admin' }, { token: ADMIN_TOKEN });
@@ -742,13 +870,13 @@ describe('API · Quiz Bíblico — Daniel', { concurrency: 1 }, () => {
     const { token, user } = await api.register({ nickname: 'privado' });
     await api.playGame(token, { wrongAt: [1] });
 
-    assert.equal((await api.get('/api/ranking')).body.items.length, 1);
+    assert.equal((await api.get('/api/ranking?book_id=oseias')).body.items.length, 1);
 
     const patch = await api.patch('/api/users/me', { share_profile: false }, { token });
     assert.equal(patch.status, 200);
     assert.equal(patch.body.user.share_profile, false);
 
-    assert.equal((await api.get('/api/ranking')).body.items.length, 0);
+    assert.equal((await api.get('/api/ranking?book_id=oseias')).body.items.length, 0);
     assert.equal((await api.get('/api/attempts/public')).body.items.length, 0);
     assert.equal((await api.get(`/api/users/${user.id}`)).status, 403);
 

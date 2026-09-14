@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import NodeWebSocket from 'ws';
 import crypto from 'node:crypto';
 import { ApiError } from '../utils/rules.js';
+import { BOOKS } from '../utils/books.js';
 
 /**
  * Repositório SUPABASE (PostgreSQL) — usado em produção.
@@ -11,16 +12,11 @@ import { ApiError } from '../utils/rules.js';
  *
  * Ranking, estatísticas e posição do jogador são calculados por funções SQL
  * (database/schema.sql): leaderboard(), player_rank(), global_stats(),
- * player_stats().
+ * player_stats() — todas com filtro por `book_id`.
+ *
+ * MULTI-LIVRO: perguntas, partidas, conquistas, ranking, histórico e
+ * estatísticas são separados por `book_id` ('oseias' | 'obadias' | 'jonas').
  */
-
-function unwrap({ data, error }, context = 'consulta') {
-  if (error) {
-    const status = /duplicate key|unique/i.test(error.message) ? 409 : 400;
-    throw new ApiError(status, `Falha no banco (${context}): ${error.message}`);
-  }
-  return data;
-}
 
 export function createSupabaseRepo({ url, serviceKey }) {
   if (!url || !serviceKey) {
@@ -31,7 +27,7 @@ export function createSupabaseRepo({ url, serviceKey }) {
 
   const db = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { 'x-application-name': 'quiz-daniel-api' } },
+    global: { headers: { 'x-application-name': 'quiz-biblico-api' } },
     // Node < 22 não tem WebSocket nativo (exigido pelo canal realtime do
     // supabase-js); fornecemos o pacote `ws` como transporte quando necessário.
     realtime:
@@ -46,11 +42,15 @@ export function createSupabaseRepo({ url, serviceKey }) {
 
     /* ------------------------------------------------------------ HEALTH */
     async health() {
-      const { count: questions, error } = await db
+      const { data: byBook, error } = await db
         .from('questions')
-        .select('id', { count: 'exact', head: true })
+        .select('book_id')
         .eq('active', true);
       if (error) throw new ApiError(503, `Supabase indisponível: ${error.message}`);
+      const questionsPerBook = {};
+      for (const row of byBook ?? []) {
+        questionsPerBook[row.book_id] = (questionsPerBook[row.book_id] || 0) + 1;
+      }
       const { count: users } = await db
         .from('users')
         .select('id', { count: 'exact', head: true });
@@ -63,8 +63,50 @@ export function createSupabaseRepo({ url, serviceKey }) {
       return {
         driver: 'supabase',
         ok: true,
-        counts: { users: users ?? 0, questions: questions ?? 0, attempts: attempts ?? 0, answers: answers ?? 0 },
+        counts: {
+          users: users ?? 0,
+          questions: byBook?.length ?? 0,
+          attempts: attempts ?? 0,
+          answers: answers ?? 0,
+        },
+        questions_per_book: questionsPerBook,
       };
+    },
+
+    /* ------------------------------------------------------------- BOOKS */
+    async listBooks() {
+      const { data: books, error } = await db
+        .from('books')
+        .select('*')
+        .eq('active', true)
+        .order('order_index', { ascending: true });
+      if (error) throw new ApiError(400, error.message);
+      const catalog = (books?.length ? books : BOOKS);
+
+      const { data: questions } = await db
+        .from('questions')
+        .select('book_id, difficulty')
+        .eq('active', true);
+      const { data: attempts } = await db
+        .from('quiz_attempts')
+        .select('book_id, score')
+        .eq('status', 'FINISHED');
+
+      return catalog.map((book) => {
+        const qs = (questions ?? []).filter((q) => q.book_id === book.id);
+        const finished = (attempts ?? []).filter((a) => a.book_id === book.id);
+        return {
+          ...book,
+          questions: {
+            total: qs.length,
+            facil: qs.filter((q) => q.difficulty === 'facil').length,
+            medio: qs.filter((q) => q.difficulty === 'medio').length,
+            dificil: qs.filter((q) => q.difficulty === 'dificil').length,
+          },
+          total_attempts: finished.length,
+          best_score: finished.length ? Math.max(...finished.map((a) => a.score)) : 0,
+        };
+      });
     },
 
     /* -------------------------------------------------------------- USERS */
@@ -188,20 +230,23 @@ export function createSupabaseRepo({ url, serviceKey }) {
     },
 
     /* ---------------------------------------------------------- QUESTIONS */
-    async listActiveQuestions() {
-      const { data, error } = await db
+    async listActiveQuestions({ bookId = null } = {}) {
+      let query = db
         .from('questions')
         .select('*')
         .eq('active', true)
         .order('order_index', { ascending: true })
         .order('chapter', { ascending: true });
+      if (bookId) query = query.eq('book_id', bookId);
+      const { data, error } = await query;
       if (error) throw new ApiError(400, error.message);
       return data ?? [];
     },
 
-    async listQuestions({ includeInactive = true } = {}) {
+    async listQuestions({ includeInactive = true, bookId = null } = {}) {
       let query = db.from('questions').select('*').order('order_index', { ascending: true });
       if (!includeInactive) query = query.eq('active', true);
+      if (bookId) query = query.eq('book_id', bookId);
       const { data, error } = await query;
       if (error) throw new ApiError(400, error.message);
       return data ?? [];
@@ -265,15 +310,16 @@ export function createSupabaseRepo({ url, serviceKey }) {
       return data;
     },
 
-    async getActiveAttempt(userId) {
-      const { data, error } = await db
+    async getActiveAttempt(userId, bookId = null) {
+      let query = db
         .from('quiz_attempts')
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'STARTED')
         .order('started_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+      if (bookId) query = query.eq('book_id', bookId);
+      const { data, error } = await query.maybeSingle();
       if (error) throw new ApiError(400, error.message);
       return data;
     },
@@ -324,7 +370,7 @@ export function createSupabaseRepo({ url, serviceKey }) {
           err.code = 'DUPLICATE_ANSWER';
           throw err;
         }
-        if (/não é possível responder|ordem de resposta|fora da ordem/i.test(error.message)) {
+        if (/não é possível responder|ordem de resposta|fora da ordem|outro livro/i.test(error.message)) {
           throw new ApiError(409, error.message.replace(/^.*?:\s*/, ''));
         }
         throw new ApiError(400, `Não foi possível registrar a resposta: ${error.message}`);
@@ -366,20 +412,24 @@ export function createSupabaseRepo({ url, serviceKey }) {
     },
 
     /* ------------------------------------------------------- ACHIEVEMENTS */
-    async listAchievements() {
-      const { data, error } = await db.from('achievements').select('*').order('created_at');
+    async listAchievements({ bookId = null } = {}) {
+      let query = db.from('achievements').select('*').order('created_at');
+      if (bookId) query = query.or(`book_id.eq.${bookId},book_id.is.null`);
+      const { data, error } = await query;
       if (error) throw new ApiError(400, error.message);
       return data ?? [];
     },
 
-    async listUserAchievements(userId) {
+    async listUserAchievements(userId, { bookId = null } = {}) {
       const { data, error } = await db
         .from('user_achievements')
         .select('*, achievements(*)')
         .eq('user_id', userId)
         .order('unlocked_at', { ascending: false });
       if (error) throw new ApiError(400, error.message);
-      return (data ?? []).map((row) => ({ ...row, ...(row.achievements || {}) }));
+      return (data ?? [])
+        .map((row) => ({ ...row, ...(row.achievements || {}) }))
+        .filter((row) => !bookId || row.book_id === bookId);
     },
 
     async unlockAchievement({ userId, achievementId, attemptId = null }) {
@@ -423,8 +473,9 @@ export function createSupabaseRepo({ url, serviceKey }) {
     },
 
     /* -------------------------------------------------------- LEADERBOARD */
-    async leaderboard({ period = 'all', mode = 'all', limit = 100, offset = 0 } = {}) {
+    async leaderboard({ bookId = null, period = 'all', mode = 'all', limit = 100, offset = 0 } = {}) {
       const { data, error } = await db.rpc('leaderboard', {
+        p_book: bookId,
         p_period: period,
         p_mode: mode,
         p_limit: limit,
@@ -434,9 +485,10 @@ export function createSupabaseRepo({ url, serviceKey }) {
       return (data ?? []).map((row) => ({ ...row, rank: Number(row.rank) }));
     },
 
-    async playerRank({ userId, period = 'all', mode = 'all' }) {
+    async playerRank({ userId, bookId = null, period = 'all', mode = 'all' }) {
       const { data, error } = await db.rpc('player_rank', {
         p_user: userId,
+        p_book: bookId,
         p_period: period,
         p_mode: mode,
       });
@@ -450,25 +502,45 @@ export function createSupabaseRepo({ url, serviceKey }) {
     },
 
     /* -------------------------------------------------------------- STATS */
-    async globalStats() {
-      const { data, error } = await db.rpc('global_stats');
+    async globalStats({ bookId = null } = {}) {
+      const { data, error } = await db.rpc('global_stats', { p_book: bookId });
       if (error) throw new ApiError(400, error.message);
+      // Compatibilidade: garante o bloco per_book no agregado.
+      if (!bookId && data && !data.per_book) {
+        const entries = await Promise.all(
+          BOOKS.map(async (book) => {
+            const { data: scoped } = await db.rpc('global_stats', { p_book: book.id });
+            return [book.id, scoped];
+          }),
+        );
+        data.per_book = Object.fromEntries(entries);
+      }
       return data;
     },
 
-    async playerStats(userId) {
-      const { data, error } = await db.rpc('player_stats', { p_user: userId });
+    async playerStats(userId, { bookId = null } = {}) {
+      const { data, error } = await db.rpc('player_stats', { p_user: userId, p_book: bookId });
       if (error) throw new ApiError(400, error.message);
+      if (!bookId && data && !data.per_book) {
+        const entries = await Promise.all(
+          BOOKS.map(async (book) => {
+            const { data: scoped } = await db.rpc('player_stats', { p_user: userId, p_book: book.id });
+            return [book.id, scoped];
+          }),
+        );
+        data.per_book = Object.fromEntries(entries);
+      }
       return data;
     },
 
-    async listAttempts({ limit = 50, offset = 0, userId = null, status = null } = {}) {
+    async listAttempts({ limit = 50, offset = 0, userId = null, status = null, bookId = null } = {}) {
       let query = db
         .from('quiz_attempts')
         .select('*, users(name, nickname)', { count: 'exact' })
         .order('created_at', { ascending: false });
       if (userId) query = query.eq('user_id', userId);
       if (status) query = query.eq('status', status);
+      if (bookId) query = query.eq('book_id', bookId);
       const { data, error, count } = await query.range(offset, offset + limit - 1);
       if (error) throw new ApiError(400, error.message);
       return {
@@ -482,18 +554,21 @@ export function createSupabaseRepo({ url, serviceKey }) {
       };
     },
 
-    async publicRecentAttempts({ limit = 30 } = {}) {
-      const { data, error } = await db
+    async publicRecentAttempts({ limit = 30, bookId = null } = {}) {
+      let query = db
         .from('quiz_attempts')
-        .select('score, correct_answers, total_questions, percentage, finished_at, users(nickname, share_profile)')
+        .select('book_id, score, correct_answers, total_questions, percentage, finished_at, users(nickname, share_profile)')
         .eq('status', 'FINISHED')
         .order('finished_at', { ascending: false })
         .limit(limit * 2);
+      if (bookId) query = query.eq('book_id', bookId);
+      const { data, error } = await query;
       if (error) throw new ApiError(400, error.message);
       return (data ?? [])
         .filter((row) => row.users?.share_profile !== false)
         .slice(0, limit)
         .map((row) => ({
+          book_id: row.book_id,
           nickname: row.users.nickname,
           score: row.score,
           correct_answers: row.correct_answers,

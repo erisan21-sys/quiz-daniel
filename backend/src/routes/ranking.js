@@ -1,20 +1,27 @@
 import express from 'express';
 import { ApiError, formatScore, normalizeMode, normalizePeriod } from '../utils/rules.js';
+import { getBook, normalizeBookId } from '../utils/books.js';
 import { asyncHandler } from '../middleware/error.js';
 import { optionalUser, requireUser } from '../middleware/auth.js';
 
 /**
- * Ranking público.
+ * Ranking público — separado por LIVRO.
  * Critério de classificação (definido no banco / no repositório, nunca no cliente):
  *   1) maior pontuação  2) maior percentual  3) mais acertos  4) resultado mais recente
  *
- * Filtros de período: hoje | semana | mês | geral
- * Filtros de modo:    todas | fácil | médio | difícil
+ * Filtros:
+ *   book_id (obrigatório): oseias | obadias | jonas
+ *   period: hoje | semana | mês | geral
+ *   difficulty: todas | fácil | médio | difícil
  */
 export function createRankingRoutes({ repo }) {
   const router = express.Router();
 
   function parseFilters(query = {}) {
+    const rawBook = query.book_id ?? query.book ?? query.livro;
+    const bookId = normalizeBookId(rawBook ?? '');
+    if (!bookId) throw new ApiError(400, 'Informe o livro: book_id deve ser oseias, obadias ou jonas.');
+
     const period = normalizePeriod(query.period);
     if (!period) throw new ApiError(400, 'Período inválido. Use all/hoje, today/hoje, week/semana ou month/mes.');
 
@@ -30,7 +37,7 @@ export function createRankingRoutes({ repo }) {
 
     const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
     const offset = Math.max(Number(query.offset) || 0, 0);
-    return { period, mode, limit, offset };
+    return { bookId, period, mode, limit, offset };
   }
 
   function decorate(row) {
@@ -57,13 +64,16 @@ export function createRankingRoutes({ repo }) {
         me = inPage;
       } else {
         const info = await repo
-          .playerRank({ userId: req.userId, period, mode: filters.mode })
+          .playerRank({ userId: req.userId, bookId: filters.bookId, period, mode: filters.mode })
           .catch(() => ({ rank: 0, total_players: 0, beaten_percentage: 0 }));
         if (info.rank) me = { rank: info.rank, user_id: req.userId, outside_page: true };
       }
     }
 
+    const book = getBook(filters.bookId);
     res.json({
+      book_id: filters.bookId,
+      book,
       period,
       mode: filters.mode,
       total: rows.length,
@@ -78,14 +88,16 @@ export function createRankingRoutes({ repo }) {
   router.get('/month', optionalUser(repo), asyncHandler((req, res) => handle(req, res, 'month')));
   router.get('/all', optionalUser(repo), asyncHandler((req, res) => handle(req, res, 'all')));
 
-  /** Posição do jogador autenticado. */
+  /** Posição do jogador autenticado (no livro informado). */
   router.get(
     '/me',
     requireUser(repo),
     asyncHandler(async (req, res) => {
       const filters = parseFilters(req.query);
-      const info = await repo.playerRank({ userId: req.userId, period: filters.period, mode: filters.mode });
+      const info = await repo.playerRank({ userId: req.userId, bookId: filters.bookId, period: filters.period, mode: filters.mode });
       res.json({
+        book_id: filters.bookId,
+        book: getBook(filters.bookId),
         ...info,
         position_label: info.rank ? `${info.rank}º lugar` : 'fora do ranking',
       });

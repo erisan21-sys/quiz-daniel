@@ -1,5 +1,5 @@
 -- ============================================================================
---  QUIZ BÍBLICO — DANIEL · rls.sql
+--  QUIZ BÍBLICO · rls.sql (v2.0 multi-livro)
 --  Row Level Security (defesa em profundidade)
 -- ----------------------------------------------------------------------------
 --  MODELO DE SEGURANÇA DA v1.0
@@ -17,6 +17,7 @@ alter table public.quiz_attempts     enable row level security;
 alter table public.quiz_answers      enable row level security;
 alter table public.achievements      enable row level security;
 alter table public.user_achievements enable row level security;
+alter table public.books             enable row level security;
 alter table public.admin_tokens      enable row level security;
 alter table public.audit_log         enable row level security;
 
@@ -24,7 +25,7 @@ alter table public.audit_log         enable row level security;
 do $$
 declare t text; p record;
 begin
-  foreach t in array array['users','questions','quiz_attempts','quiz_answers',
+  foreach t in array array['books','users','questions','quiz_attempts','quiz_answers',
                            'achievements','user_achievements','admin_tokens','audit_log']
   loop
     for p in select policyname from pg_policies where schemaname='public' and tablename=t loop
@@ -32,6 +33,13 @@ begin
     end loop;
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- BOOKS: catálogo público de livros ATIVOS (sem o legado Daniel).
+-- ---------------------------------------------------------------------------
+create policy books_select_public on public.books
+  for select to anon, authenticated
+  using (active = true);
 
 -- ---------------------------------------------------------------------------
 -- QUESTIONS: leitura pública das questões ATIVAS, sem o gabarito.
@@ -113,6 +121,6 @@ create policy answers_select_public on public.quiz_answers
 select relname as tabela, relrowsecurity as rls_ativo
 from pg_class
 where relnamespace = 'public'::regnamespace
-  and relname in ('users','questions','quiz_attempts','quiz_answers',
+  and relname in ('books','users','questions','quiz_attempts','quiz_answers',
                   'achievements','user_achievements','admin_tokens','audit_log')
 order by relname;

@@ -4,6 +4,7 @@ import { createQuizRoutes, createAttemptsRoutes } from './quiz.js';
 import { createRankingRoutes } from './ranking.js';
 import { createStatsRoutes } from './stats.js';
 import { createQuestionsRoutes } from './questions.js';
+import { createBooksRoutes } from './books.js';
 import { createAdminRoutes } from './admin.js';
 import { optionalUser } from '../middleware/auth.js';
 
@@ -18,33 +19,35 @@ export function createApiRouter({ repo, quiz, achievements }) {
 
   api.get('/', (_req, res) => {
     res.json({
-      name: 'Quiz Bíblico — Daniel',
-      version: '1.0.0',
+      name: 'Quiz Bíblico',
+      version: '2.0.0',
+      books: ['oseias', 'obadias', 'jonas'],
       docs: '/api/health',
       endpoints: [
+        'GET    /api/books',
         'POST   /api/users',
         'POST   /api/users/rejoin',
-        'GET    /api/users/me/profile',
-        'GET    /api/users/me/achievements',
+        'GET    /api/users/me/profile (?book_id=)',
+        'GET    /api/users/me/achievements (?book_id=)',
         'PATCH  /api/users/me',
         'DELETE /api/users/me',
-        'GET    /api/users/:id',
-        'GET    /api/users/:id/history',
-        'GET    /api/quiz/rules',
-        'POST   /api/quiz/start',
+        'GET    /api/users/:id (?book_id=)',
+        'GET    /api/users/:id/history (?book_id=)',
+        'GET    /api/quiz/rules (?book_id=)',
+        'POST   /api/quiz/start {book_id, mode?}',
         'POST   /api/quiz/answer',
         'POST   /api/quiz/finish',
-        'GET    /api/attempts/public',
+        'GET    /api/attempts/public (?book_id=)',
         'GET    /api/attempts/:id',
-        'GET    /api/ranking  (?period=hoje|semana|mes|geral&difficulty=todas|facil|medio|dificil)',
-        'GET    /api/ranking/today',
-        'GET    /api/ranking/week',
-        'GET    /api/ranking/month',
-        'GET    /api/ranking/me',
-        'GET    /api/stats',
-        'GET    /api/stats/attempts',
-        'GET    /api/stats/achievements',
-        'GET    /api/questions',
+        'GET    /api/ranking?book_id= (?period=hoje|semana|mes|geral&difficulty=todas|facil|medio|dificil)',
+        'GET    /api/ranking/today?book_id=',
+        'GET    /api/ranking/week?book_id=',
+        'GET    /api/ranking/month?book_id=',
+        'GET    /api/ranking/me?book_id=',
+        'GET    /api/stats (?book_id=)',
+        'GET    /api/stats/attempts (?book_id=)',
+        'GET    /api/stats/achievements (?book_id=)',
+        'GET    /api/questions (?book_id=&difficulty=)',
         'ANY    /api/admin/*   (Authorization: Bearer ADMIN_TOKEN)',
       ],
     });
@@ -52,6 +55,7 @@ export function createApiRouter({ repo, quiz, achievements }) {
 
   api.use(optionalUser(repo));
 
+  api.use('/books', createBooksRoutes({ repo }));
   api.use('/users', createUserRoutes({ repo, achievements }));
   api.use('/quiz', createQuizRoutes({ repo, quiz, achievements }));
   api.use('/attempts', createAttemptsRoutes({ repo }));

@@ -5,6 +5,7 @@ import { Link } from '../components/Link.jsx';
 import { AchievementsGrid } from '../components/Achievements.jsx';
 import { LineChart } from '../components/LineChart.jsx';
 import { ErrorState, Loading, Modal, StatsGrid } from '../components/ui.jsx';
+import { BookBadge, BookTabs } from '../components/BookTabs.jsx';
 import { formatDate, formatDurationLabel, formatNumber, formatPercent, medalFor } from '../lib/format.js';
 
 /** Perfil do jogador: posição, recordes, evolução, conquistas e privacidade. */
@@ -13,6 +14,7 @@ export function ProfilePage({ segments }) {
   const targetId = segments[1] || user?.id;
   const isSelf = Boolean(user) && targetId === user.id;
 
+  const [bookId, setBookId] = useState('');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [privacyOpen, setPrivacyOpen] = useState(false);
@@ -22,16 +24,18 @@ export function ProfilePage({ segments }) {
   const load = useCallback(() => {
     setError(null);
     setData(null);
-    const call = isSelf ? api.myProfile() : api.profile(targetId);
+    const scoped = bookId || undefined;
+    const call = isSelf ? api.myProfile(scoped) : api.profile(targetId, scoped);
     call.then(setData).catch(setError);
-  }, [isSelf, targetId]);
+  }, [isSelf, targetId, bookId]);
 
   useEffect(load, [load]);
 
   if (error) return <ErrorState error={error} onRetry={load} />;
   if (!data) return <Loading label="Carregando perfil…" />;
 
-  const { stats, rank, achievements, history } = data;
+  const { stats, rank, ranks, achievements, history } = data;
+  const rankEntries = ranks ? Object.entries(ranks).filter(([, entry]) => entry?.rank > 0) : [];
 
   async function togglePrivacy(event) {
     const share = event.target.checked;
@@ -77,12 +81,30 @@ export function ProfilePage({ segments }) {
         </div>
         {rank ? (
           <span className="badge badge-gold" style={{ fontSize: '0.9rem', padding: '8px 14px' }}>
-            {medalFor(rank) || '🎖️'} {rank}º no ranking geral
+            {medalFor(rank) || '🎖️'} {rank}º no ranking{bookId ? ` de ${data.ranks?.[bookId]?.book?.name || ''}` : ' geral'}
           </span>
         ) : (
           <span className="badge badge-muted">fora do ranking</span>
         )}
       </div>
+
+      <div className="mb-16">
+        <BookTabs value={bookId} onChange={setBookId} allowAll />
+      </div>
+
+      {rankEntries.length > 0 && (
+        <div className="card mb-16">
+          <h3 className="card-title">🏆 Posições por livro</h3>
+          <div className="flex wrap gap-8">
+            {rankEntries.map(([id, entry]) => (
+              <Link key={id} to={`/ranking?livro=${id}`} className="btn btn-sm">
+                {entry.book?.icon} {entry.book?.short_name || id}: {medalFor(entry.rank) || '🎖️'} {entry.rank}º
+                {entry.total_players > 1 ? ` de ${entry.total_players}` : ''}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <StatsGrid
         items={[
@@ -99,6 +121,21 @@ export function ProfilePage({ segments }) {
         <div className="stat-card"><div className="stat-value num">{formatDurationLabel(stats.total_duration)}</div><div className="stat-label">tempo total</div></div>
         <div className="stat-card"><div className="stat-value" style={{ fontSize: '0.9rem' }}>{formatDate(stats.last_attempt_at)}</div><div className="stat-label">última partida</div></div>
       </div>
+
+      {stats.per_book && !bookId && (
+        <div className="grid-2 mt-16" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', display: 'grid', gap: 12 }}>
+          {Object.entries(stats.per_book).map(([id, entry]) => (
+            <div key={id} className="card" style={{ margin: 0 }}>
+              <h3 className="card-title" style={{ fontSize: '0.95rem' }}>
+                {entry.book?.icon} {entry.book?.name || id}
+              </h3>
+              <p className="mb-0 faint">
+                🎮 {formatNumber(entry.attempts)} partidas · 🏆 {formatNumber(entry.best_score)} pts · 📊 {formatPercent(entry.best_percentage)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="card mt-16">
         <h3 className="card-title">📈 Evolução de pontuação</h3>
@@ -122,12 +159,13 @@ export function ProfilePage({ segments }) {
           <div className="table-wrap">
             <table className="data">
               <thead>
-                <tr><th>DATA</th><th className="num">PONTOS</th><th className="num">ACERTOS</th><th className="num">%</th><th className="num">DURAÇÃO</th></tr>
+                <tr><th>DATA</th><th>LIVRO</th><th className="num">PONTOS</th><th className="num">ACERTOS</th><th className="num">%</th><th className="num">DURAÇÃO</th></tr>
               </thead>
               <tbody>
                 {history.slice(0, 8).map((item) => (
                   <tr key={item.id}>
                     <td>{item.date_label}</td>
+                    <td><BookBadge book={item.book} bookId={item.book_id} /></td>
                     <td className="num">{item.score_label}</td>
                     <td className="num">{item.correct_answers}/{item.total_questions}</td>
                     <td className="num">{formatPercent(item.percentage)}</td>

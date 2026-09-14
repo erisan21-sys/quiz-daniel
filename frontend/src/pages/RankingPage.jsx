@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import { ErrorState, Loading } from '../components/ui.jsx';
+import { BookBadge, BookTabs } from '../components/BookTabs.jsx';
 import { formatDate, formatNumber, formatPercent, medalFor } from '../lib/format.js';
+import { bookMeta, normalizeBookId, useBooks } from '../lib/books.js';
+import { lastBookStore } from '../lib/storage.js';
 
 const PERIODS = [
   { id: 'today', label: 'HOJE' },
@@ -18,35 +21,43 @@ const MODES = [
   { id: 'dificil', label: 'DIFÍCIL' },
 ];
 
-/** Ranking público com filtros de período e dificuldade. */
+/** Ranking público: separado por livro, com filtros de período e dificuldade. */
 export function RankingPage({ params }) {
   const { user } = useApp();
+  const books = useBooks();
+  const [bookId, setBookId] = useState(
+    () => normalizeBookId(params.get('livro') || params.get('book_id')) || lastBookStore.read() || 'oseias',
+  );
   const [period, setPeriod] = useState(params.get('periodo') || 'all');
   const [mode, setMode] = useState('all');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const book = bookMeta(books, bookId) || data?.book;
 
   useEffect(() => {
+    lastBookStore.save(bookId);
     let alive = true;
     setError(null);
     setData(null);
     api
-      .ranking({ period, difficulty: mode })
+      .ranking({ book_id: bookId, period, difficulty: mode })
       .then((result) => alive && setData(result))
       .catch((err) => alive && setError(err));
     return () => {
       alive = false;
     };
-  }, [period, mode]);
+  }, [bookId, period, mode]);
 
   return (
     <div className="rise">
       <h1 className="page-title">🏆 Ranking público</h1>
       <p className="page-sub">
         Classificação oficial calculada no servidor: pontuação → percentual → acertos → recência.
+        Cada livro tem seu próprio ranking.
       </p>
 
       <div className="flex wrap gap-16 mb-16">
+        <BookTabs value={bookId} onChange={setBookId} />
         <div className="tabs" role="tablist" aria-label="Período">
           {PERIODS.map((item) => (
             <button
@@ -78,7 +89,7 @@ export function RankingPage({ params }) {
       </div>
 
       {error && <ErrorState error={error} />}
-      {!data && !error && <Loading label="Montando o ranking…" />}
+      {!data && !error && <Loading label={`Montando o ranking de ${book?.name || '…'}…`} />}
 
       {data && (
         <>
@@ -127,8 +138,10 @@ export function RankingPage({ params }) {
           )}
 
           <div className="card mt-16">
-            <h3 className="card-title">📜 Últimas partidas públicas</h3>
-            <PublicAttempts />
+            <h3 className="card-title">
+              📜 Últimas partidas públicas{book ? ` · ${book.icon} ${book.name}` : ''}
+            </h3>
+            <PublicAttempts bookId={bookId} />
           </div>
         </>
       )}
@@ -136,13 +149,15 @@ export function RankingPage({ params }) {
   );
 }
 
-function PublicAttempts() {
+function PublicAttempts({ bookId }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api.publicAttempts().then(setItems).catch(setError);
-  }, []);
+    setItems(null);
+    setError(null);
+    api.publicAttempts(bookId).then(setItems).catch(setError);
+  }, [bookId]);
 
   if (error) return <p className="faint">Indisponível no momento.</p>;
   if (!items) return <Loading label="Carregando histórico público…" />;
@@ -154,6 +169,7 @@ function PublicAttempts() {
         <thead>
           <tr>
             <th>JOGADOR</th>
+            <th>LIVRO</th>
             <th className="num">PONTOS</th>
             <th className="num">ACERTOS</th>
             <th className="num">%</th>
@@ -164,6 +180,7 @@ function PublicAttempts() {
           {items.items.slice(0, 15).map((item, index) => (
             <tr key={`${item.finished_at}-${index}`}>
               <td>{item.nickname}</td>
+              <td><BookBadge book={item.book} bookId={item.book_id} /></td>
               <td className="num">{formatNumber(item.score)}</td>
               <td className="num">{item.correct_answers}/{item.total_questions}</td>
               <td className="num">{formatPercent(item.percentage)}</td>

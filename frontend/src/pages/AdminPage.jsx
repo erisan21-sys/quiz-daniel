@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import { DifficultyBadge, ErrorState, Loading, Modal, SourceBadge, StatsGrid } from '../components/ui.jsx';
+import { BookBadge, BookTabs } from '../components/BookTabs.jsx';
 import { formatDate, formatNumber, formatPercent } from '../lib/format.js';
+import { bookMeta, useBooks } from '../lib/books.js';
 
 const TABS = [
   { id: 'overview', label: 'Visão geral' },
@@ -13,6 +15,7 @@ const TABS = [
 ];
 
 const EMPTY_QUESTION = {
+  book_id: 'oseias',
   chapter: 1,
   question: '',
   difficulty: 'facil',
@@ -133,6 +136,7 @@ function Unauthorized({ error, onRetry }) {
 
 /* ------------------------------------------------------------- visão geral */
 function Overview({ token, onAuthError }) {
+  const books = useBooks();
   const [data, error, load] = useAdminData(() => api.adminOverview(token), [token]);
   if (error) return <Unauthorized error={error} onRetry={load} />;
   if (!data) return <Loading />;
@@ -153,6 +157,25 @@ function Overview({ token, onAuthError }) {
         <div className="stat-card"><div className="stat-value num">{data.distribution.dificil}</div><div className="stat-label">difíceis ativas</div></div>
         <div className="stat-card"><div className="stat-value num">{data.distribution.inativas}</div><div className="stat-label">inativas</div></div>
       </div>
+
+      {data.by_book && (
+        <div className="grid-2 mt-16" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', display: 'grid', gap: 12 }}>
+          {Object.entries(data.by_book).map(([id, entry]) => {
+            const meta = bookMeta(books, id);
+            return (
+              <div key={id} className="card" style={{ margin: 0 }}>
+                <h3 className="card-title" style={{ fontSize: '0.95rem' }}>
+                  {meta?.icon} {meta?.name || id}
+                </h3>
+                <p className="mb-0 faint">
+                  ❓ {formatNumber(entry.total)} perguntas · 🎮 {formatNumber(entry.attempts)} partidas ·
+                  🏆 {formatNumber(entry.best_score)} pts
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="grid-2 mt-16">
         <div className="card">
@@ -176,11 +199,12 @@ function Overview({ token, onAuthError }) {
           <h3 className="card-title">🎮 Últimas partidas</h3>
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>JOGADOR</th><th className="num">PONTOS</th><th className="num">%</th><th>STATUS</th></tr></thead>
+              <thead><tr><th>JOGADOR</th><th>LIVRO</th><th className="num">PONTOS</th><th className="num">%</th><th>STATUS</th></tr></thead>
               <tbody>
                 {data.latest_attempts.map((attempt) => (
                   <tr key={attempt.id}>
                     <td>{attempt.nickname}</td>
+                    <td><BookBadge book={attempt.book} bookId={attempt.book_id} /></td>
                     <td className="num">{attempt.score_label}</td>
                     <td className="num">{formatPercent(attempt.percentage)}</td>
                     <td><span className="badge badge-muted">{attempt.status}</span></td>
@@ -197,7 +221,11 @@ function Overview({ token, onAuthError }) {
 
 /* ---------------------------------------------------------------- perguntas */
 function Questions({ token, notify, onAuthError }) {
-  const [data, error, load] = useAdminData(() => api.adminQuestions(token), [token]);
+  const [bookId, setBookId] = useState('');
+  const [data, error, load] = useAdminData(
+    () => api.adminQuestions(token, { book_id: bookId || undefined }),
+    [token, bookId],
+  );
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
 
@@ -217,8 +245,11 @@ function Questions({ token, notify, onAuthError }) {
 
   return (
     <>
+      <div className="mb-16">
+        <BookTabs value={bookId} onChange={setBookId} allowAll />
+      </div>
       <div className="flex between items-center wrap gap-8 mb-16">
-        <p className="muted mb-0">{data.total} perguntas cadastradas (6 fáceis · 8 médias · 6 difíceis é o padrão oficial).</p>
+        <p className="muted mb-0">{data.total} perguntas cadastradas (partida oficial: 6 fáceis · 8 médias · 6 difíceis do mesmo livro).</p>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
           ➕ Nova pergunta
         </button>
@@ -227,13 +258,14 @@ function Questions({ token, notify, onAuthError }) {
       <div className="table-wrap">
         <table className="data">
           <thead>
-            <tr><th>#</th><th>ENUNCIADO</th><th>CAP.</th><th>DIFICULDADE</th><th>GABARITO</th><th>FONTE</th><th>ATIVA</th><th> </th></tr>
+            <tr><th>#</th><th>ENUNCIADO</th><th>LIVRO</th><th>CAP.</th><th>DIFICULDADE</th><th>GABARITO</th><th>FONTE</th><th>ATIVA</th><th> </th></tr>
           </thead>
           <tbody>
             {data.items.map((question, index) => (
               <tr key={question.id}>
                 <td className="num">{index + 1}</td>
                 <td style={{ maxWidth: 340 }}>{question.question}</td>
+                <td><BookBadge book={question.book} bookId={question.book_id} /></td>
                 <td className="num">{question.chapter}</td>
                 <td><DifficultyBadge difficulty={question.difficulty} /></td>
                 <td><strong>{question.correct_answer}</strong></td>
@@ -254,7 +286,7 @@ function Questions({ token, notify, onAuthError }) {
       {(creating || editing) && (
         <QuestionForm
           token={token}
-          initial={editing || EMPTY_QUESTION}
+          initial={editing || { ...EMPTY_QUESTION, book_id: bookId || 'oseias' }}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -273,9 +305,11 @@ function Questions({ token, notify, onAuthError }) {
 }
 
 function QuestionForm({ token, initial, onClose, onSaved, notify }) {
+  const books = useBooks();
   const [form, setForm] = useState({ ...EMPTY_QUESTION, ...initial });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const maxChapter = bookMeta(books, form.book_id)?.chapters ?? 150;
 
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
 
@@ -299,23 +333,31 @@ function QuestionForm({ token, initial, onClose, onSaved, notify }) {
     <Modal title={initial.id ? 'Editar pergunta' : 'Nova pergunta'} onClose={onClose} wide>
       <form onSubmit={submit}>
         {error && <div className="form-error">{error.message}</div>}
+        <div className="grid-2">
+          <div className="field">
+            <label htmlFor="q-book">Livro</label>
+            <select id="q-book" className="input" value={form.book_id} onChange={set('book_id')} required>
+              {books.map((book) => (
+                <option key={book.id} value={book.id}>{book.icon} {book.name} ({book.chapters} cap.)</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="q-chapter">Capítulo (1–{maxChapter})</label>
+            <input id="q-chapter" type="number" min="1" max={maxChapter} className="input" value={form.chapter} onChange={set('chapter')} required />
+          </div>
+        </div>
         <div className="field">
           <label htmlFor="q-text">Enunciado</label>
           <textarea id="q-text" className="input" value={form.question} onChange={set('question')} required />
         </div>
-        <div className="grid-2">
-          <div className="field">
-            <label htmlFor="q-chapter">Capítulo (1–12)</label>
-            <input id="q-chapter" type="number" min="1" max="12" className="input" value={form.chapter} onChange={set('chapter')} required />
-          </div>
-          <div className="field">
-            <label htmlFor="q-diff">Dificuldade</label>
-            <select id="q-diff" className="input" value={form.difficulty} onChange={set('difficulty')}>
-              <option value="facil">Fácil (100 pts)</option>
-              <option value="medio">Médio (200 pts)</option>
-              <option value="dificil">Difícil (300 pts)</option>
-            </select>
-          </div>
+        <div className="field">
+          <label htmlFor="q-diff">Dificuldade</label>
+          <select id="q-diff" className="input" value={form.difficulty} onChange={set('difficulty')}>
+            <option value="facil">Fácil (100 pts)</option>
+            <option value="medio">Médio (200 pts)</option>
+            <option value="dificil">Difícil (300 pts)</option>
+          </select>
         </div>
         {['a', 'b', 'c', 'd'].map((letter) => (
           <div className="field" key={letter}>
@@ -422,15 +464,19 @@ function Users({ token, notify }) {
 /* ----------------------------------------------------------------- partidas */
 function Attempts({ token }) {
   const [status, setStatus] = useState('');
+  const [bookId, setBookId] = useState('');
   const [data, error, load] = useAdminData(
-    () => api.adminAttempts({ limit: 100, status }, token),
-    [token, status],
+    () => api.adminAttempts({ limit: 100, status, book_id: bookId || undefined }, token),
+    [token, status, bookId],
   );
   if (error) return <Unauthorized error={error} onRetry={load} />;
   if (!data) return <Loading />;
 
   return (
     <>
+      <div className="mb-16">
+        <BookTabs value={bookId} onChange={setBookId} allowAll />
+      </div>
       <div className="tabs mb-16">
         {[{ id: '', label: 'TODAS' }, { id: 'FINISHED', label: 'FINALIZADAS' }, { id: 'STARTED', label: 'EM ANDAMENTO' }, { id: 'ABANDONED', label: 'ABANDONADAS' }].map((item) => (
           <button key={item.id || 'all'} type="button" className={status === item.id ? 'active' : ''} onClick={() => setStatus(item.id)}>
@@ -441,13 +487,14 @@ function Attempts({ token }) {
       <div className="table-wrap">
         <table className="data">
           <thead>
-            <tr><th>DATA</th><th>JOGADOR</th><th>STATUS</th><th className="num">PONTOS</th><th className="num">ACERTOS</th><th className="num">%</th><th className="num">DURAÇÃO</th></tr>
+            <tr><th>DATA</th><th>JOGADOR</th><th>LIVRO</th><th>STATUS</th><th className="num">PONTOS</th><th className="num">ACERTOS</th><th className="num">%</th><th className="num">DURAÇÃO</th></tr>
           </thead>
           <tbody>
             {data.items.map((attempt) => (
               <tr key={attempt.id}>
                 <td>{attempt.date_label}</td>
                 <td>{attempt.nickname}</td>
+                <td><BookBadge book={attempt.book} bookId={attempt.book_id} /></td>
                 <td><span className="badge badge-muted">{attempt.status}</span></td>
                 <td className="num">{attempt.score_label}</td>
                 <td className="num">{attempt.correct_answers}/{attempt.total_questions}</td>
@@ -465,15 +512,19 @@ function Attempts({ token }) {
 /* ------------------------------------------------------------------ ranking */
 function AdminRanking({ token }) {
   const [period, setPeriod] = useState('all');
+  const [bookId, setBookId] = useState('oseias');
   const [data, error, load] = useAdminData(
-    () => api.adminRanking({ period, difficulty: 'all' }, token),
-    [token, period],
+    () => api.adminRanking({ book_id: bookId, period, difficulty: 'all' }, token),
+    [token, period, bookId],
   );
   if (error) return <Unauthorized error={error} onRetry={load} />;
   if (!data) return <Loading />;
 
   return (
     <>
+      <div className="mb-16">
+        <BookTabs value={bookId} onChange={setBookId} />
+      </div>
       <div className="tabs mb-16">
         {[{ id: 'today', label: 'HOJE' }, { id: 'week', label: 'SEMANA' }, { id: 'month', label: 'MÊS' }, { id: 'all', label: 'GERAL' }].map((item) => (
           <button key={item.id} type="button" className={period === item.id ? 'active' : ''} onClick={() => setPeriod(item.id)}>

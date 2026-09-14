@@ -1,26 +1,28 @@
 import { toPercentage } from '../utils/rules.js';
 
 /**
- * Serviço de conquistas (v1.1 do roadmap, já incluído na v1.0).
+ * Serviço de conquistas — avaliadas por LIVRO.
  * ---------------------------------------------------------------------------
- * As conquistas são avaliadas SEMPRE no servidor, ao final de cada partida.
+ * As conquistas são avaliadas SEMPRE no servidor, ao final de cada partida,
+ * usando as estatísticas DO LIVRO da partida (partidas, precisão e posição
+ * no ranking daquele livro).
  * Os critérios ficam armazenados no banco (tabela achievements.criteria), o que
  * permite criar novas conquistas sem alterar código.
  */
 
 export function createAchievementService(repo) {
-  async function evaluate({ userId, attempt, attemptId = attempt?.id }) {
-    const catalog = await repo.listAchievements();
+  async function evaluate({ userId, attempt, attemptId = attempt?.id, bookId = attempt?.book_id || null }) {
+    const catalog = await repo.listAchievements({ bookId });
     if (!catalog.length) return [];
 
-    const already = await repo.listUserAchievements(userId);
+    const already = await repo.listUserAchievements(userId, { bookId });
     const owned = new Set(already.map((a) => a.code));
     const pending = catalog.filter((a) => !owned.has(a.code));
     if (!pending.length) return [];
 
-    const stats = await repo.playerStats(userId);
+    const stats = await repo.playerStats(userId, { bookId });
     const rankInfo = await repo
-      .playerRank({ userId, period: 'all', mode: 'all' })
+      .playerRank({ userId, bookId, period: 'all', mode: 'all' })
       .catch(() => ({ rank: 0, total_players: 0, beaten_percentage: 0 }));
 
     const accuracy = toPercentage(stats.total_correct, stats.total_correct + stats.total_wrong);
@@ -47,10 +49,10 @@ export function createAchievementService(repo) {
     return unlocked;
   }
 
-  async function listFor(userId) {
+  async function listFor(userId, { bookId = null } = {}) {
     const [catalog, owned] = await Promise.all([
-      repo.listAchievements(),
-      repo.listUserAchievements(userId),
+      repo.listAchievements({ bookId }),
+      repo.listUserAchievements(userId, { bookId }),
     ]);
     const ownedByCode = new Map(owned.map((o) => [o.code, o]));
     return catalog.map((a) => {
@@ -60,6 +62,7 @@ export function createAchievementService(repo) {
         name: a.name,
         icon: a.icon,
         description: a.description,
+        book_id: a.book_id ?? null,
         unlocked: Boolean(got),
         unlocked_at: got?.unlocked_at ?? null,
       };
