@@ -52,7 +52,9 @@ describe('Regras de pontuação (autoridade do servidor)', () => {
   });
 
   test('gabarito perfeito vale 4.000 + 500 = 4.500 pontos', () => {
-    const answers = QUESTIONS.map((q) => ({ difficulty: q.difficulty, is_correct: true }));
+    const oseias = QUESTIONS.filter((q) => q.book_id === 'oseias');
+    const picked = selectQuestions(oseias, 'mixed', 20, () => 0.5, MIXED_DISTRIBUTION, 'oseias');
+    const answers = picked.map((q) => ({ difficulty: q.difficulty, is_correct: true }));
     const result = computeResult(answers);
     assert.equal(result.base_score, 4000);
     assert.equal(result.bonus_score, 500);
@@ -63,7 +65,9 @@ describe('Regras de pontuação (autoridade do servidor)', () => {
   });
 
   test('partida zerada não gera pontuação negativa', () => {
-    const answers = QUESTIONS.map((q) => ({ difficulty: q.difficulty, is_correct: false }));
+    const jonas = QUESTIONS.filter((q) => q.book_id === 'jonas');
+    const picked = selectQuestions(jonas, 'mixed', 20, () => 0.5, MIXED_DISTRIBUTION, 'jonas');
+    const answers = picked.map((q) => ({ difficulty: q.difficulty, is_correct: false }));
     const result = computeResult(answers);
     assert.equal(result.score, 0);
     assert.equal(result.base_score, 0);
@@ -222,9 +226,10 @@ describe('Validação e sanitização de entrada', () => {
 
 /* -------------------------------------------------------------------------- */
 describe('Seleção de questões', () => {
-  test('modo mixed monta 6/8/6 = 20 questões sem repetição', () => {
+  test('modo mixed monta 6/8/6 = 20 questões sem repetição (um livro por vez)', () => {
     setMixedDistribution();
-    const picked = selectQuestions(QUESTIONS, 'mixed', 20);
+    const picked = selectQuestions(QUESTIONS, 'mixed', 20, Math.random, MIXED_DISTRIBUTION, 'jonas');
+    assert.ok(picked.every((q) => q.book_id === 'jonas'));
     assert.equal(picked.length, 20);
     assert.equal(new Set(picked.map((q) => q.id)).size, 20);
     const count = picked.reduce(
@@ -232,6 +237,13 @@ describe('Seleção de questões', () => {
       { facil: 0, medio: 0, dificil: 0 },
     );
     assert.deepEqual(count, { facil: 6, medio: 8, dificil: 6 });
+  });
+
+  test('livros diferentes não compartilham questões sorteadas', () => {
+    const a = selectQuestions(QUESTIONS, 'mixed', 20, () => 0.42, MIXED_DISTRIBUTION, 'oseias');
+    const b = selectQuestions(QUESTIONS, 'mixed', 20, () => 0.42, MIXED_DISTRIBUTION, 'jonas');
+    const ids = new Set(a.map((q) => q.id));
+    assert.ok(b.every((q) => !ids.has(q.id)));
   });
 
   test('duas partidas seguidas não têm necessariamente a mesma ordem', () => {
@@ -292,7 +304,7 @@ describe('Conquistas', () => {
     assert.ok(!isUnlocked({ type: 'leaderboard_position', value: 1 }, { rank: 0 }));
   });
 
-  test('ESPECIALISTA EM DANIEL: 100 acertos e 85% de aproveitamento', () => {
+  test('Especialista do livro: 100 acertos e 85% de aproveitamento', () => {
     assert.ok(
       isUnlocked(
         { type: 'expert', correct: 100, min_accuracy: 85 },
@@ -349,6 +361,7 @@ describe('Token de sessão (HMAC)', () => {
 describe('Mensagem de compartilhamento (WhatsApp)', () => {
   test('contém todos os campos do modelo', () => {
     const text = buildShareMessage({
+      bookId: 'jonas',
       nickname: 'Daniel',
       correct: 18,
       total: 20,
@@ -356,7 +369,7 @@ describe('Mensagem de compartilhamento (WhatsApp)', () => {
       score: 4100,
       rank: 7,
     });
-    assert.match(text, /📖 Quiz Bíblico — Daniel/);
+    assert.match(text, /📖 Quiz Bíblico — Jonas/);
     assert.match(text, /👤 Jogador: Daniel/);
     assert.match(text, /🎯 Resultado: 18\/20/);
     assert.match(text, /📊 Aproveitamento: 90%/);

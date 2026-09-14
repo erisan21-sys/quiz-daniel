@@ -1,6 +1,6 @@
 /** Persistência local segura (nunca guarda respostas corretas nem pontuação). */
 
-const PREFIX = 'quiz-daniel:v1:';
+const PREFIX = 'quiz-biblico:v2:';
 
 function safeParse(raw) {
   try {
@@ -45,6 +45,17 @@ export const sessionStore = {
   },
   clear() {
     storage.remove('session');
+  },
+};
+
+/** Último livro jogado (pré-seleção nas telas). */
+export const lastBookStore = {
+  read() {
+    const value = storage.get('lastBook', null);
+    return ['oseias', 'obadias', 'jonas'].includes(value) ? value : null;
+  },
+  save(bookId) {
+    storage.set('lastBook', bookId);
   },
 };
 

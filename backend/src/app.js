@@ -11,7 +11,7 @@ import * as quizService from './services/quizService.js';
 import { createAchievementService } from './services/achievementService.js';
 import { getApiLimiter } from './middleware/rateLimit.js';
 import { errorHandler, notFound } from './middleware/error.js';
-import { QUESTIONS, ACHIEVEMENTS } from './db/seedData.js';
+import { QUESTIONS, ACHIEVEMENTS, BOOKS } from './db/seedData.js';
 
 /**
  * Fábrica da aplicação Express.
@@ -91,9 +91,9 @@ export function createApp(options = {}) {
   app.get('/api/health', async (_req, res) => {
     try {
       const info = await repo.health();
-      res.json({ ok: true, service: 'quiz-daniel-api', version: '1.0.0', db: info });
+      res.json({ ok: true, service: 'quiz-biblico-api', version: '2.0.0', db: info });
     } catch (err) {
-      res.status(503).json({ ok: false, service: 'quiz-daniel-api', error: err.message });
+      res.status(503).json({ ok: false, service: 'quiz-biblico-api', error: err.message });
     }
   });
 
@@ -128,7 +128,7 @@ export function createApp(options = {}) {
 /** Garante conteúdo inicial (útil apenas para o driver local). */
 export async function ensureSeedData(repo) {
   if (typeof repo.ensureSeed === 'function') {
-    return repo.ensureSeed(QUESTIONS, ACHIEVEMENTS);
+    return repo.ensureSeed(QUESTIONS, ACHIEVEMENTS, BOOKS);
   }
   const count = await repo.listActiveQuestions();
   return { questions: count.length, achievements: (await repo.listAchievements()).length };

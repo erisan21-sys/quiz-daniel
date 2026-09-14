@@ -1,5 +1,5 @@
 /* ==========================================================================
-   QUIZ BÍBLICO — DANIEL · design system
+   QUIZ BÍBLICO · design system (v2.0 multi-livro)
    Mobile-first · tema bíblico (azul-noite + dourado + pergaminho)
    Testado em 360 / 390 / 412 / 768 / 1024 / 1366 px
    ========================================================================== */
@@ -635,4 +635,29 @@ table.data .num { text-align: right; font-variant-numeric: tabular-nums; }
   text-decoration: underline;
   cursor: pointer;
   font: inherit;
+}
+
+/* ------------------------------------------------------------------ livros */
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  margin: 20px 0 24px;
+}
+.book-card {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+.book-card h2 {
+  margin: 4px 0 8px;
+  letter-spacing: 1px;
+}
+.book-icon {
+  font-size: 2.6rem;
+  line-height: 1;
+}
+.book-desc {
+  font-size: 0.88rem;
+  flex: 1;
 }

@@ -3,11 +3,13 @@ import { api } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import { Link } from '../components/Link.jsx';
 import { DifficultyBadge, ErrorState, Loading, Modal, SourceBadge } from '../components/ui.jsx';
+import { BookBadge, BookTabs } from '../components/BookTabs.jsx';
 import { formatDate, formatDurationLabel, formatNumber, formatPercent } from '../lib/format.js';
 
 /** Meu histórico de partidas + abertura de partidas anteriores. */
 export function HistoryPage() {
   const { user } = useApp();
+  const [bookId, setBookId] = useState('');
   const [items, setItems] = useState(null);
   const [error, setError] = useState(null);
   const [openAttempt, setOpenAttempt] = useState(null);
@@ -18,10 +20,10 @@ export function HistoryPage() {
     setError(null);
     setItems(null);
     api
-      .history(user.id, { limit: 100 })
+      .history(user.id, { limit: 100, book_id: bookId || undefined })
       .then((data) => setItems(data.items))
       .catch(setError);
-  }, [user]);
+  }, [user, bookId]);
 
   useEffect(load, [load]);
 
@@ -51,13 +53,17 @@ export function HistoryPage() {
       <h1 className="page-title">📜 Meu histórico</h1>
       <p className="page-sub">Todas as suas partidas finalizadas, com data, placar e duração oficial.</p>
 
+      <div className="mb-16">
+        <BookTabs value={bookId} onChange={setBookId} allowAll />
+      </div>
+
       {error && <ErrorState error={error} onRetry={load} />}
       {!items && !error && <Loading label="Carregando partidas…" />}
 
       {items && items.length === 0 && (
         <div className="card center">
-          <p>Nenhuma partida finalizada ainda.</p>
-          <Link to="/quiz" className="btn btn-primary">Jogar agora</Link>
+          <p>Nenhuma partida finalizada ainda{bookId ? ' neste livro' : ''}.</p>
+          <Link to="/" className="btn btn-primary">Escolher livro e jogar</Link>
         </div>
       )}
 
@@ -67,6 +73,7 @@ export function HistoryPage() {
             <thead>
               <tr>
                 <th>DATA</th>
+                <th>LIVRO</th>
                 <th className="num">PONTUAÇÃO</th>
                 <th className="num">ACERTOS</th>
                 <th className="num">ERROS</th>
@@ -79,6 +86,7 @@ export function HistoryPage() {
               {items.map((item) => (
                 <tr key={item.id}>
                   <td>{item.date_label}</td>
+                  <td><BookBadge book={item.book} bookId={item.book_id} /></td>
                   <td className="num"><strong>{item.score_label}</strong></td>
                   <td className="num">{item.correct_answers}/{item.total_questions}</td>
                   <td className="num">{item.wrong_answers}</td>
@@ -104,6 +112,9 @@ export function HistoryPage() {
             <Loading />
           ) : (
             <>
+              <div className="mb-16">
+                <BookBadge book={attemptDetail.attempt?.book} bookId={attemptDetail.attempt?.book_id} />
+              </div>
               <div className="stats-grid mb-16">
                 <div className="stat-card"><div className="stat-value">{attemptDetail.attempt.correct_answers}</div><div className="stat-label">acertos</div></div>
                 <div className="stat-card"><div className="stat-value">{attemptDetail.attempt.wrong_answers}</div><div className="stat-label">erros</div></div>
@@ -114,7 +125,7 @@ export function HistoryPage() {
               {attemptDetail.answers.map((answer) => (
                 <div key={answer.position} className="card" style={{ boxShadow: 'none' }}>
                   <div className="flex between items-center wrap gap-8">
-                    <span className="faint">#{answer.position} · Daniel {answer.chapter}</span>
+                    <span className="faint">#{answer.position} · {answer.chapter_label || `Cap. ${answer.chapter}`}</span>
                     <div className="flex gap-8 wrap">
                       <DifficultyBadge difficulty={answer.difficulty} />
                       <SourceBadge source={answer.source_type} />

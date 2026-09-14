@@ -1,14 +1,16 @@
 -- ============================================================================
---  QUIZ BÍBLICO — DANIEL · rls.sql
+--  QUIZ BÍBLICO · rls.sql (v2.0 multi-livro)
 --  Row Level Security (defesa em profundidade)
 -- ----------------------------------------------------------------------------
---  MODELO DE SEGURANÇA DA v1.0
---  • O frontend (navegador) usa SOMENTE a `anon key` do Supabase e NÃO acessa
---    diretamente as tabelas de jogo: todas as operações passam pela API.
+--  MODELO DE SEGURANÇA DA v2.0
+--  • O frontend (navegador) NÃO acessa nenhuma tabela de jogo diretamente:
+--    todas as operações passam pela API Express.
 --  • O backend usa a `service_role key`, que ignora RLS (fica apenas no servidor).
---  • Ainda assim, o RLS é habilitado em TODAS as tabelas e as policies abaixo
---    liberam apenas leituras públicas, bloqueando qualquer escrita anônima.
---    Resultado: mesmo que a anon key vaze, ninguém consegue alterar pontuação.
+--  • O RLS é habilitado em TODAS as tabelas e as policies abaixo liberam apenas
+--    leituras estritamente públicas, bloqueando qualquer escrita anônima.
+--  • A tabela `questions` NÃO tem policy de leitura: correct_answer/explanation
+--    jamais podem ser consultados com a anon key (só via API, sem gabarito).
+--    Resultado: mesmo que a anon key vaze, ninguém altera pontuação nem lê gabarito.
 -- ============================================================================
 
 alter table public.users             enable row level security;
@@ -17,6 +19,7 @@ alter table public.quiz_attempts     enable row level security;
 alter table public.quiz_answers      enable row level security;
 alter table public.achievements      enable row level security;
 alter table public.user_achievements enable row level security;
+alter table public.books             enable row level security;
 alter table public.admin_tokens      enable row level security;
 alter table public.audit_log         enable row level security;
 
@@ -24,7 +27,7 @@ alter table public.audit_log         enable row level security;
 do $$
 declare t text; p record;
 begin
-  foreach t in array array['users','questions','quiz_attempts','quiz_answers',
+  foreach t in array array['books','users','questions','quiz_attempts','quiz_answers',
                            'achievements','user_achievements','admin_tokens','audit_log']
   loop
     for p in select policyname from pg_policies where schemaname='public' and tablename=t loop
@@ -34,13 +37,24 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- QUESTIONS: leitura pública das questões ATIVAS, sem o gabarito.
--- (A coluna correct_answer/explanation nunca é devolvida pelo backend antes da
---  resposta; o SELECT abaixo ainda aplica um filtro extra por segurança.)
+-- BOOKS: catálogo público de livros ATIVOS (sem o legado Daniel).
 -- ---------------------------------------------------------------------------
-create policy questions_select_public on public.questions
+create policy books_select_public on public.books
   for select to anon, authenticated
   using (active = true);
+
+-- ---------------------------------------------------------------------------
+-- QUESTIONS: SEM LEITURA PÚBLICA DIRETA (correção de segurança v2.0).
+-- A tabela contém correct_answer/explanation/hint em texto claro; QUALQUER
+-- policy de SELECT para anon/authenticated vazaria o gabarito por consulta
+-- direta ao Supabase (basta a anon key + PostgREST).
+-- As perguntas chegam ao navegador SOMENTE via API Express (service_role,
+-- que ignora o RLS), montadas por publicQuestion(), que remove
+-- correct_answer e explanation antes da resposta.
+-- RLS continua HABILITADO e, sem nenhuma policy aqui, anon/authenticated
+-- não leem nem escrevem NADA nesta tabela.
+-- ---------------------------------------------------------------------------
+-- (intencionalmente sem `create policy ... on public.questions`)
 
 -- Nenhuma policy de insert/update/delete => escrita anônima bloqueada.
 
@@ -113,6 +127,6 @@ create policy answers_select_public on public.quiz_answers
 select relname as tabela, relrowsecurity as rls_ativo
 from pg_class
 where relnamespace = 'public'::regnamespace
-  and relname in ('users','questions','quiz_attempts','quiz_answers',
+  and relname in ('books','users','questions','quiz_attempts','quiz_answers',
                   'achievements','user_achievements','admin_tokens','audit_log')
 order by relname;

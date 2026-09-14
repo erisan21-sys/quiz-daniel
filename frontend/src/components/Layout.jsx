@@ -22,7 +22,7 @@ export function Layout({ children, route, isAdmin }) {
             <img src="/icons/icon.svg" alt="" width="34" height="34" />
             <span>
               Quiz Bíblico
-              <small>DANIEL 1–12</small>
+              <small>OSÉIAS · OBADIAS · JONAS</small>
             </span>
           </Link>
 
@@ -72,7 +72,7 @@ export function Layout({ children, route, isAdmin }) {
 
       <footer className="footer">
         <div>
-          Quiz Bíblico — Daniel · v1.0 · pontuação oficial calculada pelo servidor
+          Quiz Bíblico · v2.0 · pontuação oficial calculada pelo servidor
         </div>
         {installEvent && !isStandalone && (
           <button type="button" className="btn btn-sm btn-ghost mt-8" onClick={() => installApp()}>

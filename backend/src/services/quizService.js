@@ -13,6 +13,7 @@ import {
   serverDurationSeconds,
   toPercentage,
 } from '../utils/rules.js';
+import { bookChapterLabel, getBook, normalizeBookId } from '../utils/books.js';
 
 /**
  * Serviço de jogo — AUTORIDADE OFICIAL de pontuação.
@@ -20,6 +21,10 @@ import {
  * Todo o cálculo de acerto, pontos, bônus, percentual e duração acontece aqui,
  * no servidor. O navegador envia apenas: attempt_id, question_id,
  * selected_answer. Nunca recebe o gabarito antes de responder.
+ *
+ * MULTI-LIVRO: cada partida pertence a UM livro (`book_id`). As questões são
+ * sorteadas somente do livro escolhido, sem repetição e sem mistura entre
+ * livros — garantido aqui no serviço e, em produção, também por trigger SQL.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -28,10 +33,14 @@ import {
 
 /** Remove o gabarito e a explicação: é o que o navegador pode ver ANTES. */
 export function publicQuestion(question, position) {
+  const book = getBook(question.book_id);
   return {
     id: question.id,
     position,
+    book_id: question.book_id || null,
+    book: book ? { id: book.id, name: book.name, short_name: book.short_name, icon: book.icon } : null,
     chapter: question.chapter,
+    chapter_label: bookChapterLabel(question.book_id, question.chapter),
     difficulty: question.difficulty,
     source_type: question.source_type || 'texto_biblico',
     question: question.question,
@@ -48,8 +57,11 @@ export function publicQuestion(question, position) {
 
 /** Devolve o gabarito de uma questão (usado só depois que o jogador responde). */
 export function questionReveal(question) {
+  const book = getBook(question.book_id);
   return {
     id: question.id,
+    book_id: question.book_id || null,
+    book: book ? { id: book.id, name: book.name, short_name: book.short_name } : null,
     correct_answer: question.correct_answer,
     correct_text: question[`option_${question.correct_answer.toLowerCase()}`],
     explanation: question.explanation,
@@ -62,12 +74,15 @@ export function questionReveal(question) {
 /** Resumo de partida usado no histórico e no ranking. */
 export function attemptSummary(attempt, extra = {}) {
   const duration = attempt.duration_seconds ?? null;
+  const book = getBook(attempt.book_id);
   return {
     id: attempt.id,
     user_id: attempt.user_id,
     status: attempt.status,
     mode: attempt.mode,
     difficulty: attempt.difficulty,
+    book_id: attempt.book_id || null,
+    book: book ? { id: book.id, name: book.name, short_name: book.short_name, icon: book.icon } : null,
     score: attempt.score,
     base_score: attempt.base_score,
     bonus_score: attempt.bonus_score,
@@ -102,7 +117,7 @@ export function shuffle(list, random = Math.random) {
 }
 
 /**
- * Monta o conjunto de questões da partida.
+ * Monta o conjunto de questões da partida — SOMENTE do livro escolhido.
  *  mixed   -> 6 fáceis + 8 médias + 6 difíceis = 20 questões
  *  facil/medio/dificil -> todas as questões daquele nível (máx. 20)
  */
@@ -112,8 +127,14 @@ export function selectQuestions(
   size = 20,
   random = Math.random,
   distribution = MIXED_DISTRIBUTION,
+  bookId = null,
 ) {
-  const active = allQuestions.filter((q) => q.active !== false);
+  const active = allQuestions.filter(
+    (q) => q.active !== false && (!bookId || q.book_id === bookId),
+  );
+  const book = bookId ? getBook(bookId) : null;
+  const scope = book ? ` do livro de ${book.name}` : '';
+
   if (mode === 'mixed') {
     const picked = [];
     for (const difficulty of DIFFICULTIES) {
@@ -122,7 +143,7 @@ export function selectQuestions(
       if (pool.length < wanted) {
         throw new ApiError(
           500,
-          `Banco incompleto: são necessárias ${wanted} questões "${difficulty}" e existem ${pool.length}.`,
+          `Banco incompleto: são necessárias ${wanted} questões "${difficulty}"${scope} e existem ${pool.length}.`,
         );
       }
       picked.push(...pool.slice(0, wanted));
@@ -132,7 +153,7 @@ export function selectQuestions(
 
   const pool = shuffle(active.filter((q) => q.difficulty === mode), random);
   if (!pool.length) {
-    throw new ApiError(500, `Nenhuma questão ativa cadastrada para a dificuldade "${mode}".`);
+    throw new ApiError(500, `Nenhuma questão ativa cadastrada para a dificuldade "${mode}"${scope}.`);
   }
   return pool.slice(0, size);
 }
@@ -144,16 +165,19 @@ export function selectQuestions(
 export async function startAttempt({
   repo,
   userId,
+  bookId,
   mode = 'mixed',
   quizSize = 20,
   ttlSeconds = 14400,
   random = Math.random,
   now = () => new Date(),
 }) {
+  const book = normalizeBookId(bookId);
+  if (!book) throw new ApiError(400, 'Livro inválido. Escolha oseias, obadias ou jonas.');
   const selectedMode = normalizeMode(mode);
   if (!selectedMode) throw new ApiError(400, 'Modo de jogo inválido. Use mixed, facil, medio ou dificil.');
 
-  const active = await repo.getActiveAttempt(userId);
+  const active = await repo.getActiveAttempt(userId, book);
   if (active) {
     const ageSeconds = (now() - new Date(active.started_at)) / 1000;
     if (ageSeconds <= ttlSeconds) {
@@ -163,6 +187,7 @@ export async function startAttempt({
       const nextIndex = questions.findIndex((q) => !answeredIds.has(q.id));
       return {
         resumed: true,
+        book: getBook(active.book_id ?? book),
         attempt: attemptSummary(active, {
           answered_positions: answered.map((a) => a.position),
           next_position: nextIndex === -1 ? questions.length + 1 : nextIndex + 1,
@@ -190,13 +215,14 @@ export async function startAttempt({
     throw new ApiError(429, 'Muitas partidas abandonadas nas últimas horas. Aguarde antes de começar outra.');
   }
 
-  const allQuestions = await repo.listActiveQuestions();
-  const questions = selectQuestions(allQuestions, selectedMode, quizSize, random);
+  const allQuestions = await repo.listActiveQuestions({ bookId: book });
+  const questions = selectQuestions(allQuestions, selectedMode, quizSize, random, MIXED_DISTRIBUTION, book);
   if (!questions.length) throw new ApiError(500, 'Nenhuma questão disponível no momento.');
 
   const startedAt = now();
   const attempt = await repo.createAttempt({
     user_id: userId,
+    book_id: book,
     status: STATUS.STARTED,
     mode: selectedMode,
     difficulty: selectedMode,
@@ -207,11 +233,12 @@ export async function startAttempt({
   });
 
   await repo
-    .logAudit({ user_id: userId, attempt_id: attempt.id, action: 'ATTEMPT_STARTED', detail: { mode: selectedMode, total: questions.length } })
+    .logAudit({ user_id: userId, attempt_id: attempt.id, action: 'ATTEMPT_STARTED', detail: { book_id: book, mode: selectedMode, total: questions.length } })
     .catch(() => {});
 
   return {
     resumed: false,
+    book: getBook(book),
     attempt: attemptSummary(attempt, { next_position: 1 }),
     questions: questions.map((q, index) => publicQuestion(q, index + 1)),
   };
@@ -219,7 +246,7 @@ export async function startAttempt({
 
 async function loadAttemptQuestions(repo, attempt) {
   const order = Array.isArray(attempt.question_order) ? attempt.question_order : [];
-  const all = await repo.listActiveQuestions();
+  const all = await repo.listActiveQuestions({ bookId: attempt.book_id || null });
   const byId = new Map(all.map((q) => [q.id, q]));
   const ordered = order.map((id) => byId.get(id)).filter(Boolean);
   if (ordered.length === order.length) return ordered;
@@ -317,6 +344,15 @@ export async function answerQuestion({
   const question = await repo.getQuestionById(questionId);
   if (!question) throw new ApiError(404, 'Questão não encontrada.');
   if (question.active === false) throw new ApiError(409, 'Esta questão foi desativada.');
+
+  // ISOLAMENTO ENTRE LIVROS: a questão precisa ser do livro da partida.
+  if (attempt.book_id && question.book_id && question.book_id !== attempt.book_id) {
+    await repo.logAudit({
+      user_id: userId, attempt_id: attemptId, action: 'FRAUD_BOOK_MISMATCH',
+      detail: { question_id: questionId, attempt_book: attempt.book_id, question_book: question.book_id },
+    }).catch(() => {});
+    throw new ApiError(400, 'Esta questão pertence a outro livro e não faz parte da partida.');
+  }
 
   // ==== CÁLCULO OFICIAL (servidor) ====
   const isCorrect = question.correct_answer === letter;
@@ -445,7 +481,7 @@ export async function finishAttempt({
   await repo
     .logAudit({
       user_id: userId, attempt_id: attemptId, action: 'ATTEMPT_FINISHED',
-      detail: { score: result.score, percentage: result.percentage, duration },
+      detail: { book_id: attempt.book_id, score: result.score, percentage: result.percentage, duration },
     })
     .catch(() => {});
 
@@ -454,19 +490,21 @@ export async function finishAttempt({
 
 async function buildFinishedResponse({ repo, attempt, answers, questionById, achievements, now, alreadyFinished }) {
   const user = await repo.getUserById(attempt.user_id);
+  const bookId = attempt.book_id || null;
+  const book = getBook(bookId);
   const rankInfo = await repo
-    .playerRank({ userId: attempt.user_id, period: 'all', mode: 'all' })
+    .playerRank({ userId: attempt.user_id, bookId, period: 'all', mode: 'all' })
     .catch(() => ({ rank: 0, total_players: 0, beaten_percentage: 0 }));
 
   let unlocked = [];
   if (achievements && !alreadyFinished) {
     unlocked = await achievements
-      .evaluate({ userId: attempt.user_id, attempt, attemptId: attempt.id })
+      .evaluate({ userId: attempt.user_id, attempt, attemptId: attempt.id, bookId })
       .catch(() => []);
   }
 
-  const allAchievements = await repo.listAchievements().catch(() => []);
-  const userAchievements = await repo.listUserAchievements(attempt.user_id).catch(() => []);
+  const allAchievements = await repo.listAchievements({ bookId }).catch(() => []);
+  const userAchievements = await repo.listUserAchievements(attempt.user_id, { bookId }).catch(() => []);
   const unlockedCodes = new Set(userAchievements.map((ua) => ua.code));
 
   const review = [...answers]
@@ -476,7 +514,9 @@ async function buildFinishedResponse({ repo, attempt, answers, questionById, ach
       return {
         position: answer.position,
         question_id: answer.question_id,
+        book_id: question?.book_id ?? bookId,
         chapter: question?.chapter ?? null,
+        chapter_label: bookChapterLabel(question?.book_id ?? bookId, question?.chapter),
         question: question?.question ?? '(questão indisponível)',
         difficulty: question?.difficulty ?? 'facil',
         options: question
@@ -509,10 +549,12 @@ async function buildFinishedResponse({ repo, attempt, answers, questionById, ach
       name: a.name,
       icon: a.icon,
       description: a.description,
+      book_id: a.book_id ?? null,
       unlocked: unlockedCodes.has(a.code),
       unlocked_at: userAchievements.find((ua) => ua.code === a.code)?.unlocked_at ?? null,
     })),
     share_message: buildShareMessage({
+      bookId,
       nickname: user?.nickname ?? user?.name ?? 'Jogador',
       correct: attempt.correct_answers,
       total: attempt.total_questions,
@@ -524,6 +566,10 @@ async function buildFinishedResponse({ repo, attempt, answers, questionById, ach
     review,
   });
 
+  if (book) {
+    summary.book_name = book.name;
+  }
+
   return summary;
 }
 
@@ -531,9 +577,11 @@ async function buildFinishedResponse({ repo, attempt, answers, questionById, ach
 /* Compartilhamento (WhatsApp)                                                 */
 /* -------------------------------------------------------------------------- */
 
-export function buildShareMessage({ nickname, correct, total, percentage, score, rank }) {
+export function buildShareMessage({ bookId = null, nickname, correct, total, percentage, score, rank }) {
+  const book = getBook(bookId);
+  const title = book ? `📖 Quiz Bíblico — ${book.name}` : '📖 Quiz Bíblico';
   const lines = [
-    '📖 Quiz Bíblico — Daniel',
+    title,
     '',
     `👤 Jogador: ${nickname}`,
     `🎯 Resultado: ${correct}/${total}`,

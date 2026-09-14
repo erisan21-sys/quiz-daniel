@@ -1,5 +1,5 @@
 /**
- * QUIZ BÍBLICO — DANIEL · Regras oficiais do jogo
+ * QUIZ BÍBLICO · Regras oficiais do jogo (v2.0 multi-livro)
  * ---------------------------------------------------------------------------
  * Este módulo é a ÚNICA fonte de verdade sobre pontuação, dificuldade,
  * bônus e validação de entradas. Ele não depende de banco nem de HTTP:

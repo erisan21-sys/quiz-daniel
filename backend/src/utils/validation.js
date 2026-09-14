@@ -1,13 +1,19 @@
 import { ApiError, LETTERS, normalizeDifficulty, sanitizeText } from './rules.js';
+import { getBook, isValidChapter, normalizeBookId } from './books.js';
 
 const SOURCE_TYPES = ['texto_biblico', 'historico', 'interpretacao'];
 
 /**
  * Valida o payload de criação/edição de questões usado pela área administrativa.
- * Garante objetividade: 4 alternativas distintas, exatamente 1 correta,
- * explicação e dica obrigatórias.
+ * Garante objetividade: livro válido, capítulo dentro do intervalo do livro,
+ * 4 alternativas distintas, exatamente 1 correta, explicação e dica obrigatórias.
+ *
+ * @param {object} input payload recebido
+ * @param {{partial?: boolean, bookId?: string|null}} options
+ *   partial: edição parcial (PUT) — só valida os campos enviados
+ *   bookId: livro já conhecido (ex.: questão existente) para validar `chapter`
  */
-export function validateQuestionPayload(input = {}, { partial = false } = {}) {
+export function validateQuestionPayload(input = {}, { partial = false, bookId = null } = {}) {
   const payload = {};
 
   const set = (key, value) => {
@@ -24,10 +30,26 @@ export function validateQuestionPayload(input = {}, { partial = false } = {}) {
     }
   }
 
+  // Livro: obrigatório na criação; opcional (mas validado) na edição.
+  let effectiveBook = bookId ? normalizeBookId(bookId) : null;
+  if (has('book_id')) {
+    const book = normalizeBookId(input.book_id);
+    if (!book) {
+      throw new ApiError(400, 'Livro inválido. Use oseias, obadias ou jonas.');
+    }
+    set('book_id', book);
+    effectiveBook = book;
+  } else if (!partial) {
+    throw new ApiError(400, 'Campo obrigatório ausente: book_id (oseias, obadias ou jonas).');
+  }
+
   if (has('chapter')) {
     const chapter = Number(input.chapter);
-    if (!Number.isInteger(chapter) || chapter < 1 || chapter > 12) {
-      throw new ApiError(400, 'O capítulo deve ser um número entre 1 e 12.');
+    const book = getBook(effectiveBook);
+    const max = book ? book.chapters : 150;
+    const label = book ? `1 e ${max} (livro de ${book.name})` : 'válido';
+    if (!Number.isInteger(chapter) || (effectiveBook && !isValidChapter(effectiveBook, chapter)) || (!effectiveBook && (chapter < 1 || chapter > 150))) {
+      throw new ApiError(400, `O capítulo deve ser um número entre ${label}.`);
     }
     set('chapter', chapter);
   } else if (!partial) {

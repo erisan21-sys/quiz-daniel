@@ -1,5 +1,6 @@
 # ============================================================================
-#  QUIZ BÍBLICO — DANIEL · Blueprint do Render (backend)
+#  QUIZ BÍBLICO · Blueprint do Render (backend v2.0 multi-livro)
+#  (o nome do serviço/URLs mantém `quiz-daniel*` por compatibilidade com a produção v1)
 # ----------------------------------------------------------------------------
 #  Uso: repositório no GitHub/GitLab → Render → "New +" → "Blueprint".
 #  O Render lê este arquivo e cria o serviço web com health check automático.

@@ -3,11 +3,14 @@ import { api } from '../api/client.js';
 import { Link } from '../components/Link.jsx';
 import { ErrorState, Loading, StatsGrid } from '../components/ui.jsx';
 import { formatNumber, formatPercent } from '../lib/format.js';
+import { useBooks } from '../lib/books.js';
+import { lastBookStore } from '../lib/storage.js';
 import { useApp } from '../context/AppContext.jsx';
 
-/** Tela inicial: título, indicadores globais e ações principais. */
+/** Tela inicial: escolha do livro, indicadores globais e ações principais. */
 export function HomePage() {
   const { user, notify } = useApp();
+  const books = useBooks();
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
   const [waking, setWaking] = useState(false);
@@ -33,7 +36,7 @@ export function HomePage() {
       } catch (err) {
         if (attempt < waits.length - 1) continue;
         setError(err);
-        const cached = window.localStorage.getItem('quiz-daniel:v1:cached-stats');
+        const cached = window.localStorage.getItem('quiz-biblico:v2:cached-stats');
         if (cached) {
           try {
             setStats(JSON.parse(cached));
@@ -52,22 +55,58 @@ export function HomePage() {
   useEffect(() => {
     if (stats) {
       try {
-        window.localStorage.setItem('quiz-daniel:v1:cached-stats', JSON.stringify(stats));
+        window.localStorage.setItem('quiz-biblico:v2:cached-stats', JSON.stringify(stats));
       } catch {
         /* ignora */
       }
     }
   }, [stats]);
 
+  const playHref = (bookId) => {
+    const quizUrl = `/quiz?livro=${bookId}`;
+    return user ? quizUrl : `/entrar?next=${encodeURIComponent(quizUrl)}`;
+  };
+
   return (
     <div className="rise">
       <section className="hero">
-        <div className="kicker">Livro do profeta · capítulos 1 a 12</div>
+        <div className="kicker">Antigo Testamento · 3 livros · 150 perguntas</div>
         <h1>
           QUIZ BÍBLICO
-          <span>DANIEL</span>
+          <span>ESCOLHA O LIVRO</span>
         </h1>
-        <p>Teste seus conhecimentos sobre o livro de Daniel</p>
+        <p>20 perguntas por partida · 6 fáceis + 8 médias + 6 difíceis · ranking separado por livro</p>
+      </section>
+
+      <section className="book-grid" aria-label="Escolha o livro">
+        {books.map((book) => (
+          <article key={book.id} className="card book-card">
+            <div className="book-icon" aria-hidden="true">{book.icon}</div>
+            <h2>{book.short_name}</h2>
+            <p className="muted book-desc">{book.description}</p>
+            <p className="faint mb-8">
+              {book.questions?.total ?? 50} perguntas · {book.chapters === 1 ? 'capítulo único' : `${book.chapters} capítulos`}
+            </p>
+            {stats?.per_book?.[book.id] && (
+              <p className="faint mb-8">
+                🎮 {formatNumber(stats.per_book[book.id].total_attempts)} partidas jogadas
+              </p>
+            )}
+            <Link
+              to={playHref(book.id)}
+              className="btn btn-primary btn-block"
+              onClick={() => {
+                lastBookStore.save(book.id);
+                notify(`Boa sorte no livro de ${book.name}! A pontuação oficial é do servidor. 🛡️`, 'info');
+              }}
+            >
+              🎯 {book.short_name} — JOGAR
+            </Link>
+            <Link to={`/ranking?livro=${book.id}`} className="btn btn-block mt-8">
+              🏆 Ranking de {book.name}
+            </Link>
+          </article>
+        ))}
       </section>
 
       {error && !stats && <ErrorState error={error} onRetry={load} />}
@@ -102,9 +141,6 @@ export function HomePage() {
           />
 
           <div className="home-actions">
-            <Link to={user ? '/quiz' : '/entrar?next=/quiz'} className="btn btn-primary">
-              🎯 ENTRAR NO QUIZ
-            </Link>
             <Link to="/ranking" className="btn">🏆 RANKING</Link>
             <Link to={user ? '/historico' : '/entrar?next=/historico'} className="btn">📜 HISTÓRICO</Link>
             <Link to="/estatisticas" className="btn">📊 ESTATÍSTICAS</Link>
@@ -120,9 +156,9 @@ export function HomePage() {
               </p>
               <div className="mt-8">
                 <Link
-                  to="/quiz"
+                  to="/"
                   className="btn btn-sm btn-primary"
-                  onClick={() => notify('Boa sorte! Lembre-se: a pontuação oficial é do servidor. 🛡️')}
+                  onClick={() => notify('Escolha um livro acima e aceite o desafio! 🎯')}
                 >
                   Aceitar o desafio
                 </Link>

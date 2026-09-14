@@ -102,8 +102,8 @@ export async function startTestApp(options = {}) {
       return { ...res, user: res.body?.user, token: res.body?.token, nickname };
     },
 
-    async start(token, { mode = 'mixed' } = {}) {
-      return api('POST', '/api/quiz/start', { body: { mode }, token });
+    async start(token, { mode = 'mixed', bookId = 'oseias', book_id } = {}) {
+      return api('POST', '/api/quiz/start', { body: { mode, book_id: book_id ?? bookId }, token });
     },
 
     async answer(token, attemptId, questionId, selected, extra = {}) {
@@ -121,8 +121,8 @@ export async function startTestApp(options = {}) {
      * Joga uma partida inteira usando o gabarito conhecido dos testes
      * (acertos controlados por `wrongAt` — posições, 1-based, a errar).
      */
-    async playGame(token, { wrongAt = [], wrongDifficulties = null, mode = 'mixed' } = {}) {
-      const started = await client.start(token, { mode });
+    async playGame(token, { wrongAt = [], wrongDifficulties = null, mode = 'mixed', bookId = 'oseias' } = {}) {
+      const started = await client.start(token, { mode, bookId });
       if (started.status >= 300) return { ok: false, started };
 
       const attemptId = started.body.attempt.id;

@@ -1,11 +1,15 @@
 -- ============================================================================
---  QUIZ BÍBLICO — DANIEL  ·  v1.0
+--  QUIZ BÍBLICO  ·  v2.0 (multi-livro: Oséias · Obadias · Jonas)
 --  Esquema do banco (PostgreSQL / Supabase)
 -- ----------------------------------------------------------------------------
 --  Executar no SQL Editor do Supabase (ou via psql) na ordem:
---     1) database/schema.sql   (este arquivo)
---     2) database/seed.sql     (20 perguntas + conquistas)
---     3) database/rls.sql      (Row Level Security + policies)
+--     1) database/schema.sql       (este arquivo)
+--     2) database/seed_books.sql   (3 livros + 150 perguntas + 21 conquistas)
+--     3) database/rls.sql          (Row Level Security + policies)
+--
+--  Bases criadas na v1.x (Daniel): executar ANTES a migração
+--     database/migracoes/2026-09-14_multi_book.sql
+--  e depois o passo 2 para carregar os novos livros.
 -- ============================================================================
 
 -- Extensões -----------------------------------------------------------------
@@ -32,6 +36,27 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   create type user_role as enum ('player', 'admin');
 exception when duplicate_object then null; end $$;
+
+-- ============================================================================
+-- BOOKS  (catálogo de livros jogáveis; book_id é o slug estável)
+-- ============================================================================
+create table if not exists public.books (
+  id            text primary key,                       -- 'oseias' | 'obadias' | 'jonas'
+  name          varchar(40)  not null,                   -- 'Oséias'
+  short_name    varchar(12)  not null,                   -- 'OSÉIAS'
+  chapters      smallint     not null,                   -- nº de capítulos do livro
+  testament     varchar(24)  not null default 'Antigo Testamento',
+  icon          varchar(16)  not null default '📖',
+  color         varchar(16)  not null default '#38bdf8',
+  order_index   integer      not null default 0,
+  description   text         not null default '',
+  active        boolean      not null default true,
+  created_at    timestamptz  not null default now(),
+
+  constraint books_chapters_range check (chapters between 1 and 150)
+);
+
+comment on table public.books is 'Catálogo multi-livro. book_id (slug) separa perguntas, partidas, ranking, histórico, estatísticas e conquistas por livro.';
 
 -- ============================================================================
 -- USERS
@@ -65,7 +90,8 @@ comment on table  public.users is 'Jogadores. v1.0: cadastro por nome/apelido. v
 -- ============================================================================
 create table if not exists public.questions (
   id              uuid primary key default gen_random_uuid(),
-  chapter         smallint     not null,                 -- 1..12 (Daniel)
+  book_id         text         not null references public.books(id) on delete restrict,
+  chapter         smallint     not null,
   question        text         not null,
   difficulty      question_difficulty not null,
   option_a        text         not null,
@@ -81,7 +107,7 @@ create table if not exists public.questions (
   created_at      timestamptz  not null default now(),
   updated_at      timestamptz  not null default now(),
 
-  constraint questions_chapter_range check (chapter between 1 and 12),
+  constraint questions_chapter_range check (chapter between 1 and 150),
   constraint questions_text_len      check (char_length(question) between 10 and 600),
   constraint questions_option_len    check (char_length(option_a) between 1 and 300
                                           and char_length(option_b) between 1 and 300
@@ -98,15 +124,18 @@ create table if not exists public.questions (
   constraint questions_source_type check (source_type in ('texto_biblico','historico','interpretacao'))
 );
 
+create index if not exists questions_book_idx        on public.questions (book_id) where active;
+create index if not exists questions_book_diff_idx   on public.questions (book_id, difficulty) where active;
 create index if not exists questions_difficulty_idx on public.questions (difficulty) where active;
 create index if not exists questions_active_idx     on public.questions (active, order_index);
 
 -- ============================================================================
--- QUIZ_ATTEMPTS  (partida)
+-- QUIZ_ATTEMPTS  (partida — pertence a UM livro)
 -- ============================================================================
 create table if not exists public.quiz_attempts (
   id               uuid primary key default gen_random_uuid(),
   user_id          uuid not null references public.users(id) on delete cascade,
+  book_id          text not null references public.books(id) on delete restrict,
   status           attempt_status not null default 'STARTED',
   mode             quiz_mode      not null default 'mixed',
   difficulty       varchar(16)    not null default 'mixed',  -- redundância legível p/ ranking
@@ -141,8 +170,12 @@ create table if not exists public.quiz_attempts (
 );
 
 create index if not exists attempts_user_idx        on public.quiz_attempts (user_id, created_at desc);
+create index if not exists attempts_user_book_idx   on public.quiz_attempts (user_id, book_id, created_at desc);
 create index if not exists attempts_status_idx      on public.quiz_attempts (status);
+create index if not exists attempts_book_idx        on public.quiz_attempts (book_id, status);
 create index if not exists attempts_finished_idx    on public.quiz_attempts (score desc, percentage desc, correct_answers desc, finished_at desc)
+                                                     where status = 'FINISHED';
+create index if not exists attempts_finished_book_idx on public.quiz_attempts (book_id, score desc, percentage desc, finished_at desc)
                                                      where status = 'FINISHED';
 create index if not exists attempts_created_at_idx  on public.quiz_attempts (created_at desc);
 
@@ -173,17 +206,19 @@ create index if not exists answers_question_idx on public.quiz_answers (question
 create index if not exists answers_user_idx     on public.quiz_answers (user_id);
 
 -- ============================================================================
--- ACHIEVEMENTS / USER_ACHIEVEMENTS  (conquistas)
+-- ACHIEVEMENTS / USER_ACHIEVEMENTS  (conquistas — separadas por livro)
 -- ============================================================================
 create table if not exists public.achievements (
   id          uuid primary key default gen_random_uuid(),
   code        varchar(40) not null unique,
+  book_id     text references public.books(id) on delete restrict,  -- null = global/legado
   name        varchar(80) not null,
   description text        not null,
   icon        varchar(16) not null default '🏅',
   criteria    jsonb       not null default '{}'::jsonb,
   created_at  timestamptz not null default now()
 );
+create index if not exists achievements_book_idx on public.achievements (book_id);
 
 create table if not exists public.user_achievements (
   id             uuid primary key default gen_random_uuid(),
@@ -248,6 +283,28 @@ create trigger trg_attempts_updated_at before update on public.quiz_attempts
   for each row execute function public.set_updated_at();
 
 -- ============================================================================
+-- TRIGGER: capítulo válido para o livro da questão
+-- ============================================================================
+create or replace function public.check_question_book_chapter()
+returns trigger language plpgsql as $$
+declare
+  v_max smallint;
+begin
+  select chapters into v_max from public.books where id = new.book_id;
+  if v_max is null then
+    raise exception 'livro desconhecido: %', new.book_id;
+  end if;
+  if new.chapter < 1 or new.chapter > v_max then
+    raise exception 'capítulo % inválido para o livro % (1..%)', new.chapter, new.book_id, v_max;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists trg_questions_book_chapter on public.questions;
+create trigger trg_questions_book_chapter before insert or update of book_id, chapter on public.questions
+  for each row execute function public.check_question_book_chapter();
+
+-- ============================================================================
 -- TRIGGER: partida FINISHED/ABANDONED é IMUTÁVEL
 -- ============================================================================
 create or replace function public.protect_finished_attempt()
@@ -275,13 +332,14 @@ create trigger trg_attempts_immutable before update on public.quiz_attempts
   for each row execute function public.protect_finished_attempt();
 
 -- ============================================================================
--- TRIGGER: respostas só entram em partida STARTED e na ordem sorteada
+-- TRIGGER: respostas só entram em partida STARTED, na ordem e NO MESMO LIVRO
 -- ============================================================================
 create or replace function public.protect_answer_insert()
 returns trigger language plpgsql as $$
 declare
   v_attempt public.quiz_attempts%rowtype;
   v_expected uuid;
+  v_question_book text;
 begin
   select * into v_attempt from public.quiz_attempts where id = new.attempt_id for update;
   if not found then
@@ -300,8 +358,13 @@ begin
   if v_expected is not null and v_expected <> new.question_id then
     raise exception 'questão fora da ordem sorteada da partida' using errcode = '23505';
   end if;
-  if not exists (select 1 from public.questions q where q.id = new.question_id and q.active) then
+  select q.book_id into v_question_book from public.questions q where q.id = new.question_id and q.active;
+  if v_question_book is null then
     raise exception 'questão inexistente ou inativa';
+  end if;
+  -- ISOLAMENTO ENTRE LIVROS: questão de outro livro nunca entra na partida.
+  if v_attempt.book_id is not null and v_question_book <> v_attempt.book_id then
+    raise exception 'questão de outro livro não pode entrar nesta partida' using errcode = '23505';
   end if;
   return new;
 end $$;
@@ -311,12 +374,14 @@ create trigger trg_answers_guard before insert on public.quiz_answers
   for each row execute function public.protect_answer_insert();
 
 -- ============================================================================
--- RPC: leaderboard (ranking) — calculado 100% no banco
+-- RPC: leaderboard (ranking) — calculado 100% no banco, separado por livro
+--   p_book:   'oseias' | 'obadias' | 'jonas' (null = todos)
 --   p_period: 'all' | 'today' | 'week' | 'month'
 --   p_mode:   'mixed' | 'facil' | 'medio' | 'dificil' | 'all'
 --   Critério: 1) maior pontuação 2) maior percentual 3) mais acertos 4) resultado mais recente
 -- ============================================================================
 create or replace function public.leaderboard(
+  p_book   text default null,
   p_period text default 'all',
   p_mode   text default 'all',
   p_limit  integer default 100,
@@ -341,6 +406,7 @@ language sql stable as $$
     from public.quiz_attempts a
     where a.status = 'FINISHED'
       and a.total_questions > 0
+      and (p_book is null or a.book_id = p_book)
       and (
             p_period = 'all'
          or (p_period = 'today' and a.finished_at >= date_trunc('day', now()))
@@ -385,12 +451,12 @@ language sql stable as $$
 $$;
 
 -- ============================================================================
--- RPC: posição de um jogador + percentual superado
+-- RPC: posição de um jogador + percentual superado (no livro)
 -- ============================================================================
-create or replace function public.player_rank(p_user uuid, p_period text default 'all', p_mode text default 'all')
+create or replace function public.player_rank(p_user uuid, p_book text default null, p_period text default 'all', p_mode text default 'all')
 returns table (rank bigint, total_players bigint, beaten_percentage numeric)
 language sql stable as $$
-  with lb as (select * from public.leaderboard(p_period, p_mode, 200, 0)),
+  with lb as (select * from public.leaderboard(p_book, p_period, p_mode, 200, 0)),
        me as (select * from lb where lb.user_id = p_user)
   select coalesce(me.rank, 0)::bigint                       as rank,
          (select count(*) from lb)::bigint                  as total_players,
@@ -401,28 +467,41 @@ language sql stable as $$
          end                                                as beaten_percentage
   from me
   union all
-  select 0, (select count(*) from public.leaderboard(p_period, p_mode, 200, 0)), 0
+  select 0, (select count(*) from public.leaderboard(p_book, p_period, p_mode, 200, 0)), 0
   where not exists (select 1 from me);
 $$;
 
 -- ============================================================================
--- RPC: estatísticas gerais do dashboard
+-- RPC: estatísticas gerais do dashboard (escopo do livro; null = geral)
 -- ============================================================================
-create or replace function public.global_stats()
+create or replace function public.global_stats(p_book text default null)
 returns jsonb language sql stable as $$
   select jsonb_build_object(
-    'total_players',        (select count(*) from public.users),
-    'total_attempts',       (select count(*) from public.quiz_attempts where status = 'FINISHED'),
-    'total_answers',        (select count(*) from public.quiz_answers),
-    'total_questions',      (select count(*) from public.questions where active),
-    'best_score',           (select coalesce(max(score), 0) from public.quiz_attempts where status = 'FINISHED'),
-    'best_percentage',      (select coalesce(max(percentage), 0) from public.quiz_attempts where status = 'FINISHED'),
-    'avg_score',            (select coalesce(round(avg(score)), 0) from public.quiz_attempts where status = 'FINISHED'),
-    'avg_correct',          (select coalesce(round(avg(correct_answers)::numeric, 1), 0) from public.quiz_attempts where status = 'FINISHED'),
-    'avg_percentage',       (select coalesce(round(avg(percentage), 1), 0) from public.quiz_attempts where status = 'FINISHED'),
+    'book_id',            p_book,
+    'total_players',      case when p_book is null
+                             then (select count(*) from public.users)
+                             else (select count(distinct user_id) from public.quiz_attempts
+                                   where status = 'FINISHED' and book_id = p_book) end,
+    'total_attempts',     (select count(*) from public.quiz_attempts
+                           where status = 'FINISHED' and (p_book is null or book_id = p_book)),
+    'total_answers',      (select count(*) from public.quiz_answers qa
+                           join public.quiz_attempts a on a.id = qa.attempt_id
+                           where (p_book is null or a.book_id = p_book)),
+    'total_questions',    (select count(*) from public.questions
+                           where active and (p_book is null or book_id = p_book)),
+    'best_score',         (select coalesce(max(score), 0) from public.quiz_attempts
+                           where status = 'FINISHED' and (p_book is null or book_id = p_book)),
+    'best_percentage',    (select coalesce(max(percentage), 0) from public.quiz_attempts
+                           where status = 'FINISHED' and (p_book is null or book_id = p_book)),
+    'avg_score',          (select coalesce(round(avg(score)), 0) from public.quiz_attempts
+                           where status = 'FINISHED' and (p_book is null or book_id = p_book)),
+    'avg_correct',        (select coalesce(round(avg(correct_answers)::numeric, 1), 0) from public.quiz_attempts
+                           where status = 'FINISHED' and (p_book is null or book_id = p_book)),
+    'avg_percentage',     (select coalesce(round(avg(percentage), 1), 0) from public.quiz_attempts
+                           where status = 'FINISHED' and (p_book is null or book_id = p_book)),
     'most_correct_question', (
         select coalesce(jsonb_agg(jsonb_build_object(
-                 'question_id', q.id, 'text', q.question, 'correct', s.correct, 'wrong', s.wrong,
+                 'question_id', q.id, 'book_id', q.book_id, 'text', q.question, 'correct', s.correct, 'wrong', s.wrong,
                  'accuracy', round(100.0 * s.correct / nullif(s.correct + s.wrong, 0), 1))
                order by (s.correct::numeric / nullif(s.correct + s.wrong, 0)) desc nulls last)
                filter (where rn <= 5), '[]'::jsonb)
@@ -432,12 +511,15 @@ returns jsonb language sql stable as $$
                  count(*) filter (where not qa.is_correct) as wrong,
                  row_number() over (order by (count(*) filter (where qa.is_correct))::numeric
                                       / nullif(count(*), 0) desc) as rn
-          from public.quiz_answers qa group by qa.question_id
+          from public.quiz_answers qa
+          join public.quiz_attempts a on a.id = qa.attempt_id
+          where (p_book is null or a.book_id = p_book)
+          group by qa.question_id
         ) s join public.questions q on q.id = s.question_id
     ),
     'most_wrong_question', (
         select coalesce(jsonb_agg(jsonb_build_object(
-                 'question_id', q.id, 'text', q.question, 'correct', s.correct, 'wrong', s.wrong,
+                 'question_id', q.id, 'book_id', q.book_id, 'text', q.question, 'correct', s.correct, 'wrong', s.wrong,
                  'accuracy', round(100.0 * s.correct / nullif(s.correct + s.wrong, 0), 1))
                order by (s.wrong::numeric / nullif(s.correct + s.wrong, 0)) desc nulls last)
                filter (where rn <= 5), '[]'::jsonb)
@@ -447,34 +529,58 @@ returns jsonb language sql stable as $$
                  count(*) filter (where not qa.is_correct) as wrong,
                  row_number() over (order by (count(*) filter (where not qa.is_correct))::numeric
                                       / nullif(count(*), 0) desc) as rn
-          from public.quiz_answers qa group by qa.question_id
+          from public.quiz_answers qa
+          join public.quiz_attempts a on a.id = qa.attempt_id
+          where (p_book is null or a.book_id = p_book)
+          group by qa.question_id
         ) s join public.questions q on q.id = s.question_id
     )
   );
 $$;
 
 -- ============================================================================
--- RPC: estatísticas de um jogador (perfil + gráfico de evolução)
+-- RPC: estatísticas de um jogador (escopo do livro; null = geral)
 -- ============================================================================
-create or replace function public.player_stats(p_user uuid)
+create or replace function public.player_stats(p_user uuid, p_book text default null)
 returns jsonb language sql stable as $$
   select jsonb_build_object(
-    'attempts',        (select count(*) from public.quiz_attempts a where a.user_id = p_user and a.status = 'FINISHED'),
-    'total_correct',   (select coalesce(sum(correct_answers),0) from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
-    'total_wrong',     (select coalesce(sum(wrong_answers),0)   from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
-    'best_score',      (select coalesce(max(score),0)           from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
-    'best_percentage', (select coalesce(max(percentage),0)      from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
-    'avg_score',       (select coalesce(round(avg(score)),0)    from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
-    'avg_correct',     (select coalesce(round(avg(correct_answers)::numeric,1),0) from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
-    'total_duration',  (select coalesce(sum(duration_seconds),0) from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
-    'last_attempt_at', (select max(finished_at) from public.quiz_attempts a where a.user_id = p_user and a.status='FINISHED'),
+    'book_id',         p_book,
+    'attempts',        (select count(*) from public.quiz_attempts a
+                        where a.user_id = p_user and a.status = 'FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'total_correct',   (select coalesce(sum(correct_answers),0) from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'total_wrong',     (select coalesce(sum(wrong_answers),0)   from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'best_score',      (select coalesce(max(score),0)           from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'best_percentage', (select coalesce(max(percentage),0)      from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'avg_score',       (select coalesce(round(avg(score)),0)    from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'avg_correct',     (select coalesce(round(avg(correct_answers)::numeric,1),0) from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'total_duration',  (select coalesce(sum(duration_seconds),0) from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
+    'last_attempt_at', (select max(finished_at) from public.quiz_attempts a
+                        where a.user_id = p_user and a.status='FINISHED'
+                          and (p_book is null or a.book_id = p_book)),
     'evolution', (
         select coalesce(jsonb_agg(jsonb_build_object(
+                 'book_id', a.book_id,
                  'date', to_char(a.finished_at, 'DD/MM/YYYY'),
                  'score', a.score, 'percentage', a.percentage, 'correct', a.correct_answers,
                  'total', a.total_questions) order by a.finished_at asc), '[]'::jsonb)
         from (select * from public.quiz_attempts
               where user_id = p_user and status = 'FINISHED'
+                and (p_book is null or book_id = p_book)
               order by finished_at desc limit 30) a
     )
   );
@@ -484,6 +590,7 @@ $$;
 -- GRANTS (o backend usa a service_role key; o frontend NUNCA acessa o banco)
 -- ============================================================================
 grant usage on schema public to anon, authenticated;
+grant select on public.books to anon, authenticated;
 grant select on public.questions to anon, authenticated;
 revoke insert, update, delete on all tables in schema public from anon, authenticated;
 grant all on all tables in schema public to service_role;

@@ -63,7 +63,7 @@ async function main() {
     // eslint-disable-next-line no-console
     console.warn(
       '[seed] Nenhuma questão ativa encontrada no Supabase. Execute database/schema.sql, ' +
-        'database/seed.sql e database/rls.sql no SQL Editor.',
+        'database/seed_books.sql e database/rls.sql no SQL Editor.',
     );
   }
 
@@ -71,14 +71,14 @@ async function main() {
     // eslint-disable-next-line no-console
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
-║  QUIZ BÍBLICO — DANIEL · API v1.0                        ║
+║  QUIZ BÍBLICO · API v2.0 (Oséias · Obadias · Jonas)       ║
 ╚══════════════════════════════════════════════════════════╝
   ➜ ambiente : ${config.env}
   ➜ driver   : ${config.db.driver}
   ➜ porta    : ${config.port}
   ➜ saúde    : http://localhost:${config.port}/api/health
   ➜ rotas    : http://localhost:${config.port}/api
-${seedInfo ? `  ➜ conteúdo : ${seedInfo.questions} questões · ${seedInfo.achievements ?? 0} conquistas` : ''}
+${seedInfo ? `  ➜ conteúdo : ${seedInfo.books ?? 3} livros · ${seedInfo.questions} questões · ${seedInfo.achievements ?? 0} conquistas` : ''}
 ${staticDir ? `  ➜ frontend : ${staticDir}` : ''}
 `);
   });

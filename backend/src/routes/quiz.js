@@ -9,6 +9,7 @@ import {
   formatScore,
   isUuid,
 } from '../utils/rules.js';
+import { getBook, normalizeBookId } from '../utils/books.js';
 import { asyncHandler } from '../middleware/error.js';
 import { requireUser } from '../middleware/auth.js';
 import { getAnswerLimiter, getQuizLimiter, getStartLimiter } from '../middleware/rateLimit.js';
@@ -19,6 +20,7 @@ import config from '../config/index.js';
  * Rotas de jogo (/api/quiz/*).
  * O navegador envia apenas attempt_id + question_id + selected_answer;
  * is_correct, pontos, bônus, percentual e duração são calculados no servidor.
+ * Cada partida pertence a UM livro (`book_id`).
  */
 export function createQuizRoutes({ repo, quiz, achievements }) {
   const router = express.Router();
@@ -26,8 +28,8 @@ export function createQuizRoutes({ repo, quiz, achievements }) {
   /* ----------------------------------------------------------------------- */
   /* GET /api/quiz/rules — regras públicas (transparência)                    */
   /* ----------------------------------------------------------------------- */
-  router.get('/rules', (_req, res) => {
-    res.json({
+  router.get('/rules', (req, res) => {
+    const payload = {
       points: POINTS,
       distribution: MIXED_DISTRIBUTION,
       quiz_size: config.game.quizSize,
@@ -35,7 +37,14 @@ export function createQuizRoutes({ repo, quiz, achievements }) {
       max_base_score: maxBaseScore(MIXED_DISTRIBUTION),
       attempt_ttl_seconds: config.game.attemptTtlSeconds,
       note: 'A pontuação oficial é calculada e validada pelo servidor. O cronômetro oficial é o relógio do servidor.',
-    });
+    };
+    const rawBook = req.query.book_id ?? req.query.book ?? req.query.livro;
+    if (rawBook !== undefined && rawBook !== '') {
+      const bookId = normalizeBookId(rawBook);
+      if (!bookId) throw new ApiError(400, 'Livro inválido. Escolha oseias, obadias ou jonas.');
+      payload.book = getBook(bookId);
+    }
+    res.json(payload);
   });
 
   /* ----------------------------------------------------------------------- */
@@ -50,6 +59,7 @@ export function createQuizRoutes({ repo, quiz, achievements }) {
       const result = await quiz.startAttempt({
         repo,
         userId: req.userId,
+        bookId: req.body?.book_id ?? req.body?.book,
         mode: req.body?.mode,
         quizSize: config.game.quizSize,
         ttlSeconds: config.game.attemptTtlSeconds,
@@ -106,7 +116,7 @@ export function createQuizRoutes({ repo, quiz, achievements }) {
 
 /**
  * Rotas de partidas (/api/attempts/*).
- *   GET /api/attempts/public — histórico público de partidas
+ *   GET /api/attempts/public — histórico público de partidas (?book_id=)
  *   GET /api/attempts/:id    — detalhe de uma partida
  */
 export function createAttemptsRoutes({ repo }) {
@@ -116,18 +126,29 @@ export function createAttemptsRoutes({ repo }) {
     '/public',
     asyncHandler(async (req, res) => {
       const limit = Math.min(Math.max(Number(req.query.limit) || 40, 1), 100);
-      const items = await repo.publicRecentAttempts({ limit });
+      const rawBook = req.query.book_id ?? req.query.book;
+      let bookId = null;
+      if (rawBook !== undefined && rawBook !== '') {
+        bookId = normalizeBookId(rawBook);
+        if (!bookId) throw new ApiError(400, 'Livro inválido. Escolha oseias, obadias ou jonas.');
+      }
+      const items = await repo.publicRecentAttempts({ limit, bookId });
       res.json({
         total: items.length,
-        items: items.map((item) => ({
-          ...item,
-          score_label: formatScore(item.score),
-          date_label: new Date(item.finished_at).toLocaleDateString('pt-BR'),
-          time_label: new Date(item.finished_at).toLocaleTimeString('pt-BR', {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        })),
+        book_id: bookId,
+        items: items.map((item) => {
+          const book = getBook(item.book_id);
+          return {
+            ...item,
+            book: book ? { id: book.id, name: book.name, short_name: book.short_name, icon: book.icon } : null,
+            score_label: formatScore(item.score),
+            date_label: new Date(item.finished_at).toLocaleDateString('pt-BR'),
+            time_label: new Date(item.finished_at).toLocaleTimeString('pt-BR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+          };
+        }),
       });
     }),
   );
@@ -148,7 +169,7 @@ export function createAttemptsRoutes({ repo }) {
 
       const [answers, questions, user] = await Promise.all([
         repo.listAnswersByAttempt(id),
-        repo.listQuestions({ includeInactive: true }),
+        repo.listQuestions({ includeInactive: true, bookId: attempt.book_id || null }),
         repo.getUserById(attempt.user_id),
       ]);
       const byId = new Map(questions.map((q) => [q.id, q]));
@@ -166,14 +187,17 @@ export function createAttemptsRoutes({ repo }) {
         }),
         answers: answers.map((answer) => {
           const question = byId.get(answer.question_id);
+          const book = getBook(question?.book_id ?? attempt.book_id);
           const base = {
             position: answer.position,
             question_id: answer.question_id,
+            book_id: question?.book_id ?? attempt.book_id ?? null,
             selected_answer: answer.selected_answer,
             is_correct: answer.is_correct,
             points: answer.points,
             question: question?.question ?? '(questão indisponível)',
             chapter: question?.chapter ?? null,
+            chapter_label: book ? `${book.name}${book.id === 'obadias' ? '' : ` ${question?.chapter ?? ''}`}`.trim() : null,
             difficulty: question?.difficulty ?? 'facil',
           };
           // Gabarito e explicação: liberados apenas para partidas FINALIZADAS.

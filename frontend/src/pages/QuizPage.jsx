@@ -2,14 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, OfflineError } from '../api/client.js';
 import { useApp } from '../context/AppContext.jsx';
 import { DifficultyBadge, ErrorState, Loading, SourceBadge } from '../components/ui.jsx';
+import { BookBadge } from '../components/BookTabs.jsx';
 import { formatDurationLabel, formatNumber } from '../lib/format.js';
-import { lastResultStore, pendingQueueStore } from '../lib/storage.js';
+import { bookMeta, normalizeBookId, useBooks } from '../lib/books.js';
+import { lastBookStore, lastResultStore, pendingQueueStore } from '../lib/storage.js';
 import { navigate } from '../lib/router.jsx';
 
 const MIN_LOCAL_INTERVAL_MS = 1400; // espelha o anti-macro do servidor (1.2s)
 
 /**
  * Tela do quiz.
+ *  • O livro vem de ?livro= (ou do último jogado); cada partida usa UM livro.
  *  • O gabarito chega questão a questão, SOMENTE depois de responder.
  *  • O cronômetro exibido é apenas visual: a duração oficial é do servidor.
  *  • Sem conexão, as respostas ficam em fila local e são sincronizadas depois
@@ -17,7 +20,14 @@ const MIN_LOCAL_INTERVAL_MS = 1400; // espelha o anti-macro do servidor (1.2s)
  */
 export function QuizPage({ params }) {
   const { user, online, notify } = useApp();
+  const books = useBooks();
   const mode = params.get('modo') || 'mixed';
+  const bookId = useMemo(
+    () => normalizeBookId(params.get('livro') || params.get('book_id')) || lastBookStore.read() || 'oseias',
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [params.get('livro'), params.get('book_id')],
+  );
+  const book = bookMeta(books, bookId);
 
   const [state, setState] = useState({ status: 'loading', error: null });
   const [index, setIndex] = useState(0);
@@ -52,16 +62,17 @@ export function QuizPage({ params }) {
   /* ----------------------------------------------------------- carregamento */
   const load = useCallback(async () => {
     if (!user) {
-      navigate('/entrar?next=/quiz');
+      navigate(`/entrar?next=${encodeURIComponent(`/quiz?livro=${bookId}${mode !== 'mixed' ? `&modo=${mode}` : ''}`)}`);
       return;
     }
     setState({ status: 'loading', error: null });
     try {
-      const data = await api.start(mode);
+      const data = await api.start(mode, bookId);
+      lastBookStore.save(data.book?.id || data.attempt?.book_id || bookId);
       const nextIndex = Math.max(0, (data.attempt.next_position || 1) - 1);
       setState({ status: 'playing', attempt: data.attempt, questions: data.questions, resumed: data.resumed });
       setIndex(nextIndex);
-      if (data.resumed) notify('Partida anterior retomada. 👍', 'info');
+      if (data.resumed) notify(`Partida de ${data.book?.name || bookId} retomada. 👍`, 'info');
     } catch (err) {
       if (err instanceof OfflineError) {
         setState({ status: 'error', error: new Error('Sem conexão para iniciar a partida. Reconecte e tente de novo.') });
@@ -69,12 +80,12 @@ export function QuizPage({ params }) {
         setState({ status: 'error', error: err });
       }
     }
-  }, [user, mode, notify]);
+  }, [user, mode, bookId, notify]);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, mode]);
+  }, [user?.id, mode, bookId]);
 
   /* ------------------------------------------------- sincronização offline */
   const pushQueue = useCallback((entry) => {
@@ -201,7 +212,7 @@ export function QuizPage({ params }) {
 
   /* ---------------------------------------------------------------- render */
   if (!user) return <Loading label="Preparando sua identificação…" />;
-  if (state.status === 'loading') return <Loading label="Sorteando as 20 questões…" />;
+  if (state.status === 'loading') return <Loading label={`Sorteando as 20 questões de ${book?.name || '…'}…`} />;
   if (state.status === 'error') return <ErrorState error={state.error} onRetry={load} />;
 
   const answeredCount = feedback?.progress?.answered ?? (attempt?.answered_count ?? 0);
@@ -213,6 +224,9 @@ export function QuizPage({ params }) {
         <div>
           <span className="quiz-progress-text">
             Questão {Math.min(index + 1, questions.length)} de {questions.length}
+          </span>
+          <span style={{ marginLeft: 8 }}>
+            <BookBadge book={attempt?.book} bookId={attempt?.book_id || bookId} />
           </span>
           {queue.length > 0 && (
             <span className="badge badge-gold" style={{ marginLeft: 8 }}>
@@ -240,7 +254,7 @@ export function QuizPage({ params }) {
             <div className="flex between items-center wrap gap-8 mb-8">
               <div className="flex gap-8 items-center wrap">
                 <DifficultyBadge difficulty={question.difficulty} />
-                <span className="badge badge-muted">Daniel {question.chapter}</span>
+                <span className="badge badge-muted">{question.chapter_label || `Cap. ${question.chapter}`}</span>
                 <span className="badge badge-gold">+{formatNumber(question.points)} pts</span>
               </div>
               <SourceBadge source={question.source_type} />
