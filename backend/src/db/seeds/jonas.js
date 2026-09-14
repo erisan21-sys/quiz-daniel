@@ -51,7 +51,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Uma chuva de pedras', option_b: 'Um grande vento (tempestade)', option_c: 'Uma escuridão de três dias', option_d: 'Um exército de gafanhotos',
     correct_answer: 'B',
     explanation:
-      'Jonas 1:4: "Mas o Senhor lançou sobre o mar um forte vento, e fez-se no mar uma grande tempestade, e o navio estava a ponto de quebrar-se." A tempestade era a disciplina de Deus para alcançar o profeta fujão.',
+      'Jonas 1:4: "Mas o Senhor lançou sobre o mar um forte vento, e fez-se no mar uma grande tempestade, e o navio estava a ponto de quebrar-se." A tempestade viera por causa de Jonas — ele mesmo o reconhece em 1:12 — e Deus a usou para alcançar o profeta fujão.',
     hint: 'Foi uma grande tempestade que quase quebrou o navio.',
   },
   {
@@ -152,7 +152,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Cidade santa', option_b: 'Grande cidade', option_c: 'Cidade fortificada', option_d: 'Cidade dos reis',
     correct_answer: 'B',
     explanation:
-      'Jonas 1:2: "vai à grande cidade de Nínive." A expressão "grande cidade" se repete em 3:2-3 e 4:11, ressaltando a importância da missão: Deus se importava até com a capital inimiga.',
+      'Jonas 1:2: "vai à grande cidade de Nínive." A expressão "grande cidade" se repete em 3:2-3 e 4:11, ressaltando a importância da cidade e da missão confiada a Jonas.',
     hint: 'O adjetivo destaca o tamanho e a importância dela.',
   },
   {
@@ -179,7 +179,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Orando no convés', option_b: 'Ajudando os marinheiros', option_c: 'Dormindo no porão do navio', option_d: 'Olhando o horizonte na proa',
     correct_answer: 'C',
     explanation:
-      'Jonas 1:5: Jonas "desceu ao porão do navio; deitou-se e dormia profundamente." O contraste é proposital: os pagãos clamavam aos seus deuses, e o profeta do Deus verdadeiro dormia.',
+      'Jonas 1:5: Jonas "desceu ao porão do navio; deitou-se e dormia profundamente." O contraste é marcante: os pagãos clamavam aos seus deuses, enquanto o profeta do Deus verdadeiro dormia.',
     hint: 'Ele desceu e dormia profundamente.',
   },
   {
@@ -215,7 +215,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Esperar a tempestade passar', option_b: 'Remar para alcançar a terra', option_c: 'Oferecer ouro ao mar', option_d: 'Voltar para Jope velejando',
     correct_answer: 'B',
     explanation:
-      'Jonas 1:13: "os homens remavam, esforçando-se por alcançar a terra, mas não podiam, porque o mar se ia tornando cada vez mais tempestuoso." Os pagãos mostraram mais misericórdia que o profeta mostrara a Nínive.',
+      'Jonas 1:13: "os homens remavam, esforçando-se por alcançar a terra, mas não podiam, porque o mar se ia tornando cada vez mais tempestuoso." Os marinheiros se esforçaram para poupar Jonas — contraste com o profeta, que fugira em vez de pregar o arrependimento a Nínive.',
     hint: 'Eles se esforçaram com os remos.',
   },
   {
@@ -224,7 +224,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Fugiram para Társis', option_b: 'Temeram ao Senhor e lhe ofereceram sacrifício e votos', option_c: 'Jogaram Jonas de volta ao mar', option_d: 'Queimaram o navio em gratidão',
     correct_answer: 'B',
     explanation:
-      'Jonas 1:16: "Temeram, pois, estes homens em extremo ao Senhor; ofereceram sacrifícios ao Senhor e fizeram votos." O profeta fujão acabou evangelizando a tripulação: os marinheiros se converteram ao Senhor.',
+      'Jonas 1:16: "Temeram, pois, estes homens em extremo ao Senhor; ofereceram sacrifícios ao Senhor e fizeram votos." O profeta fujão acabou levando a tripulação a temer ao Senhor: ofereceram-lhe sacrifícios e fizeram votos.',
     hint: 'Eles se converteram: temeram, sacrificaram e prometeram.',
   },
   {
@@ -233,7 +233,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Do convés do navio', option_b: 'Do ventre do peixe', option_c: 'Da praia de Jope', option_d: 'Do templo de Jerusalém',
     correct_answer: 'B',
     explanation:
-      'Jonas 2:1: "Jonas orou ao Senhor, seu Deus, do ventre do peixe." A oração é um salmo de gratidão cheio de citações dos Salmos — prova de que Jonas conhecia as Escrituras.',
+      'Jonas 2:1: "Jonas orou ao Senhor, seu Deus, do ventre do peixe." A oração de Jonas 2:2-9 tem linguagem muito parecida com a dos Salmos (compare com Sl 18:6; 42:7; 31:22) — semelhança que muitos estudiosos veem como familiaridade do autor com as Escrituras.',
     hint: 'Foi do lugar mais improvável: dentro do peixe.',
   },
   {
@@ -251,7 +251,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Redes de pesca', option_b: 'Algas', option_c: 'Cordas do navio', option_d: 'Cabelos de náufragos',
     correct_answer: 'B',
     explanation:
-      'Jonas 2:5: "As águas me cercaram até à alma, o abismo me rodeou; e as algas se enrolaram na minha cabeça." O detalhe mostra que Jonas realmente desceu ao fundo do mar antes de ser tragado.',
+      'Jonas 2:5: "As águas me cercaram até à alma, o abismo me rodeou; e as algas se enrolaram na minha cabeça." O detalhe das algas sugere que ele chegou ao fundo do mar antes de ser tragado pelo peixe.',
     hint: 'São as plantas do fundo do mar.',
   },
   {
@@ -323,7 +323,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Alegre e grato', option_b: 'Desgostoso e irado', option_c: 'Indiferente', option_d: 'Com medo do rei',
     correct_answer: 'B',
     explanation:
-      'Jonas 4:1: "Com isso, desgostou-se Jonas extremamente e ficou irado." O pregador do arrependimento se irou com o sucesso da própria pregação — o coração do livro é essa contradição de Jonas.',
+      'Jonas 4:1: "Com isso, desgostou-se Jonas extremamente e ficou irado." O pregador do arrependimento se irou com o sucesso da própria pregação — nessa contradição de Jonas está um dos pontos centrais do livro.',
     hint: 'Ele se irou com a misericórdia de Deus.',
   },
 
@@ -334,7 +334,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'Um tributo ao capitão', option_b: 'A passagem (o frete)', option_c: 'Uma oferta aos deuses', option_d: 'O dobro do preço da carga',
     correct_answer: 'B',
     explanation:
-      'Jonas 1:3: Jonas "pagou a passagem e embarcou nele." Fugir de Deus sempre tem um preço: Jonas pagou a passagem, perdeu a carga dos outros, quase perdeu a vida — e ainda precisou aprender a lição.',
+      'Jonas 1:3: Jonas "pagou a passagem e embarcou nele." Jonas pagou a passagem — e a narrativa mostra que a fuga lhe custaria ainda mais: a carga dos outros, o risco da própria vida e a lição no ventre do peixe.',
     hint: 'Fugir de Deus sempre custa caro: ele pagou para embarcar.',
   },
   {
@@ -379,7 +379,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'esconderá', option_b: 'voltará e se arrependerá', option_c: 'calarã para sempre', option_d: 'mostrará em sonhos',
     correct_answer: 'B',
     explanation:
-      'Jonas 3:9: "Quem sabe se Deus se voltará, e se arrependerá, e se apartará do furor da sua ira, de sorte que não pereçamos?" O rei pagão entendeu o coração de Deus melhor que o profeta: Deus se agrada em perdoar quem se arrepende.',
+      'Jonas 3:9: "Quem sabe se Deus se voltará, e se arrependerá, e se apartará do furor da sua ira, de sorte que não pereçamos?" O \"quem sabe\" do rei contrasta com a certeza amarga do profeta (4:2): diante da possibilidade do perdão, o rei se humilhou.',
     hint: 'O rei esperava que Deus mudasse de propósito.',
   },
   {
@@ -388,7 +388,7 @@ export const JONAS_QUESTIONS = [
     option_a: '"Cala-te, profeta rebelde!"', option_b: '"É razoável essa tua ira?"', option_c: '"Volta para Israel agora!"', option_d: '"Não te escolhi mais!"',
     correct_answer: 'B',
     explanation:
-      'Jonas 4:4: "Respondeu o Senhor: É razoável essa tua ira?" Em vez de repreender com dureza, Deus fez uma pergunta que expõe o absurdo: irar-se porque Deus perdoou é irracional.',
+      'Jonas 4:4: "Respondeu o Senhor: É razoável essa tua ira?" Em vez de repreender com dureza, Deus fez uma pergunta que expõe a contradição: irar-se justo porque Deus perdoou.',
     hint: 'Deus respondeu com uma pergunta, não com uma repreensão.',
   },
   {
@@ -442,7 +442,7 @@ export const JONAS_QUESTIONS = [
     option_a: 'o bem e o mal', option_b: 'a mão direita e a esquerda', option_c: 'o dia e a noite', option_d: 'a verdade e a mentira',
     correct_answer: 'B',
     explanation:
-      'Jonas 4:11: "mais de cento e vinte mil pessoas, que não sabem discernir entre a mão direita e a esquerda." A expressão indica ignorância espiritual (como crianças pequenas): motivo para compaixão, não para ira.',
+      'Jonas 4:11: "mais de cento e vinte mil pessoas, que não sabem discernir entre a mão direita e a esquerda." A expressão é entendida por muitos como ignorância espiritual (como crianças pequenas): motivo para compaixão, não para ira.',
     hint: 'É algo que até uma criança pequena confunde.',
   },
   {

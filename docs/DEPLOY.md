@@ -68,7 +68,7 @@ server {
   ssl_certificate_key /etc/letsencrypt/live/quiz.seudominio.com.br/privkey.pem;
 
   location /api/ { proxy_pass http://127.0.0.1:8787; proxy_set_header X-Forwarded-For $remote_addr; }
-  location /     { root /var/www/quiz-daniel/frontend/dist; try_files $uri /index.html; }
+  location /     { root /var/www/quiz-biblico/frontend/dist; try_files $uri /index.html; }
 }
 ```
 

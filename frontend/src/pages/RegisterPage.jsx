@@ -84,7 +84,7 @@ export function RegisterPage({ params }) {
               value={name}
               maxLength={80}
               autoComplete="nickname"
-              placeholder="Ex.: Daniel Silva"
+              placeholder="Ex.: Maria Silva"
               onChange={(event) => setName(event.target.value)}
               required
             />
@@ -98,7 +98,7 @@ export function RegisterPage({ params }) {
             className="input"
             value={nickname}
             maxLength={30}
-            placeholder={mode === 'new' ? 'Ex.: daniel.silva' : 'Digite o apelido usado no cadastro'}
+            placeholder={mode === 'new' ? 'Ex.: maria.silva' : 'Digite o apelido usado no cadastro'}
             onChange={(event) => setNickname(event.target.value)}
             required={mode === 'rejoin'}
           />

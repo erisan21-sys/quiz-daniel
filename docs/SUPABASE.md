@@ -49,7 +49,7 @@
 | Tabela             | anon/authenticated                     | service_role |
 | ------------------ | -------------------------------------- | ------------ |
 | `books`            | SELECT apenas de `active=true`         | tudo |
-| `questions`        | SELECT apenas de ativas                | tudo |
+| `questions`        | **nenhum acesso direto** (só via API service_role, sem gabarito) | tudo |
 | `users`            | SELECT apenas de `share_profile=true`  | tudo |
 | `quiz_attempts`    | SELECT apenas de `FINISHED` públicas   | tudo |
 | `quiz_answers`     | SELECT apenas de partidas `FINISHED`   | tudo |
@@ -64,6 +64,11 @@ pontuação pelo banco**. Toda escrita passa pela API, que usa a `service_role k
 
 > O gabarito (`correct_answer`, `explanation`) nunca é enviado pelo backend antes da resposta:
 > as rotas públicas montam as questões com `publicQuestion()`, que remove esses campos.
+>
+> **Correção de segurança v2.0:** a tabela `questions` NÃO possui nenhuma policy para
+> `anon`/`authenticated` — uma policy de SELECT, mesmo com `active = true`, exporia o gabarito
+> por consulta direta (anon key + PostgREST). As perguntas chegam ao navegador somente pela
+> API Express, que usa `service_role` (ignora o RLS).
 
 ## 4. Chaves
 

@@ -4,7 +4,7 @@ Executada em 14/09/2026 sobre o repositório completo.
 Comandos: `npm test` (backend, 92 testes), `npm run build` (frontend), inspeção manual de
 SQL/RLS/PWA e teste de fumaça (`/api/health`, `/api/books`, `/api/ranking` sem `book_id` → 400).
 
-Resultado: **92/92 testes passando · build de produção sem erros · nenhum TODO/FIXME/placeholder**
+Resultado: **102/102 testes passando · build de produção sem erros · nenhum TODO/FIXME/placeholder**
 · **nenhuma referência a Daniel na UI pública** (só legado documentado: migração, seed v1 e auditoria v1).
 
 | # | Item auditado | Onde verificar | Resultado |
@@ -21,7 +21,7 @@ Resultado: **92/92 testes passando · build de produção sem erros · nenhum TO
 | 10 | Ranking: critérios e filtros | `leaderboard(p_book)` + RankingPage | ✅ separado por livro; pontos → % → acertos → recência; HOJE/SEMANA/MÊS/GERAL × TODAS/FÁCIL/MÉDIO/DIFÍCIL; 🥇🥈🥉 |
 | 11 | Histórico próprio e público | HistoryPage + `/api/attempts/public` | ✅ data/livro/pontos/acertos/erros/%/duração; público só apelido+resultado; abertura de partida anterior com revisão |
 | 12 | Cadastro simples + UUID | `/api/users` | ✅ nome/apelido, UUID server-side, token HMAC, sem senha; campos de auth futura prontos |
-| 13 | Segurança | helmet/CORS/rate limit/validação/RLS | ✅ CSP em produção, CORS por origem, 6 limitadores, sanitização de entrada, service_role só no backend, `.env.example` sem segredos |
+| 13 | Segurança | helmet/CORS/rate limit/validação/RLS | ✅ CSP em produção, CORS por origem, 6 limitadores, sanitização de entrada, service_role só no backend, `.env.example` sem segredos; `questions` sem leitura pública (anti-vazamento de gabarito) |
 | 14 | RLS | `database/rls.sql` | ✅ RLS em 9 tabelas (inclui books); anon só lê o público; escrita anônima inexistente; admin_tokens/audit_log fechados |
 | 15 | Responsividade | `styles/global.css` | ✅ mobile-first; breakpoints 768/1024; nav vira barra inferior <768px; tabelas com scroll; cartões de livro em grade fluida |
 | 16 | PWA | manifest + sw.js + ícones | ✅ instalável (standalone), nome Quiz Bíblico, ícones any/maskable 192/512 + SVG, splash por background_color, shortcuts, screenshot; cache v2 |
@@ -32,9 +32,31 @@ Resultado: **92/92 testes passando · build de produção sem erros · nenhum TO
 | 21 | Compartilhamento | ResultPage + `shareResult` | ✅ mensagem com nome do livro, botões COMPARTILHAR (Web Share → wa.me) e COPIAR |
 | 22 | Anti-fraude | triggers + service + testes | ✅ isolamento entre livros, ordem sorteada, duplicidade, dono, status, cadência, payload ignorado, imutabilidade, auditoria |
 | 23 | Privacidade/LGPD | users.share_profile + DELETE /users/me | ✅ anonimizar ou apagar; ranking respeita opt-out |
-| 24 | Testes | `backend/test/*` | ✅ 92 testes (56 integração HTTP real + 35 regras + infra), incluindo isolamento entre livros |
+| 24 | Testes | `backend/test/*` | ✅ 102 testes (56 integração HTTP real + 35 regras + 10 segurança + infra), incluindo isolamento entre livros e anti-vazamento de gabarito |
 | 25 | Documentação | README + docs/* | ✅ instalação, Supabase, migração v1→v2, env, execução, testes, deploy, admin, backup |
 | 26 | Migração v1→v2 | `database/migracoes/2026-09-14_multi_book.sql` | ✅ preserva histórico como `daniel` inativo; `SELECT`s de conferência; ordem de aplicação documentada |
+
+## Revisão de segurança pós-auditoria (14/09/2026)
+
+Auditoria externa do PR #1 pediu 3 correções antes do merge — todas aplicadas nesta branch:
+
+1. **Gabarito via Supabase (🔴):** removida a policy `questions_select_public`. A tabela
+   `questions` segue com RLS habilitado e **zero** policies para `anon`/`authenticated`;
+   perguntas só via API (`service_role` + `publicQuestion()` sem gabarito). Coberta por
+   3 testes estáticos do SQL + 2 testes de não-vazamento via HTTP.
+2. **Service Worker (🔴):** `sw.js` reescrito com negação padrão — só GETs de endpoints
+   comprovadamente públicos entram no Cache API; qualquer `Authorization`, `/users/*`,
+   `/admin/*`, `/ranking/me`, `/attempts/:id` e não-GETs são passthrough puro. Versão do
+   cache bumped (`sw2`) para descartar cópias antigas. Coberta por 4 testes que carregam
+   o `sw.js` real em `vm` no Node.
+3. **Conteúdo das perguntas (🟡):** corrigido 1 gabarito/enunciado incompatível
+   (Os 4:15: verbo "subir" → questão agora usa "não venhais a Gilgal"), 1 inconsistência
+   de unidade (siclos → peças, igual à citação) e suavizadas 14 explicações com leitura
+   interpretativa, agora atribuídas ("muitos estudiosos veem…", "muitos entendem…") ou
+   ancoradas no versículo. `seed_books.sql` regenerado das seeds.
+4. **Extras:** limpas as referências desnecessárias a Daniel na UI (placeholders,
+   `VITE_APP_NAME`, cabeçalhos); adicionado CI do GitHub (`.github/workflows/ci.yml`)
+   para comprovar testes + build no PR.
 
 ## Pontos de atenção conscientes (decisões de projeto)
 

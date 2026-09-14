@@ -78,7 +78,7 @@ export const OBADIAS_QUESTIONS = [
     option_a: 'Em tendas no deserto', option_b: 'Nas fendas das rochas, em morada alta', option_c: 'Em ilhas no mar', option_d: 'Em cavernas junto ao Jordão',
     correct_answer: 'B',
     explanation:
-      'Obadias 3: "ó tu que habitas nas fendas das rochas, cuja morada é alta." Edom ocupava a região montanhosa de Seir, com cidades fortificadas nas rochas (como Sela, a futura Petra), e confiava nessas defesas naturais.',
+      'Obadias 3: "ó tu que habitas nas fendas das rochas, cuja morada é alta." Edom ocupava a região montanhosa de Seir, com cidades fortificadas nas rochas (como Sela, geralmente associada à futura Petra), e confiava nessas defesas naturais.',
     hint: 'Era um lugar alto, entre pedras, que parecia inexpugnável.',
   },
   {
@@ -161,7 +161,7 @@ export const OBADIAS_QUESTIONS = [
     option_a: 'rei de Judá', option_b: 'Senhor Deus', option_c: 'anjo do Senhor', option_d: 'profeta aos povos',
     correct_answer: 'B',
     explanation:
-      'Obadias 1: "Assim diz o Senhor Deus a respeito de Edom." A fórmula mostra que a sentença contra Edom vem do próprio Deus, não de opinião humana.',
+      'Obadias 1: "Assim diz o Senhor Deus a respeito de Edom." Na linguagem profética, essa fórmula apresenta a sentença como palavra do próprio Deus.',
     hint: 'É a fórmula clássica dos profetas: "Assim diz o…".',
   },
   {
@@ -260,7 +260,7 @@ export const OBADIAS_QUESTIONS = [
     option_a: 'o juiz', option_b: 'um', option_c: 'o inimigo', option_d: 'o refúgio',
     correct_answer: 'B',
     explanation:
-      'Obadias 11: "tu mesmo eras um deles." Edom não ficou neutra: agiu como um dos invasores de Jerusalém. A neutralidade diante do mal do irmão já seria culpa; a participação ativa foi crime.',
+      'Obadias 11: "tu mesmo eras um deles." Para o profeta, Edom não ficou neutra: agiu como um dos invasores de Jerusalém — e é essa participação ativa que o versículo condena.',
     hint: 'Edom se fez igual aos invasores.',
   },
   {
@@ -334,7 +334,7 @@ export const OBADIAS_QUESTIONS = [
     option_a: 'chama', option_b: 'vento', option_c: 'martelo', option_d: 'espada',
     correct_answer: 'A',
     explanation:
-      'Obadias 18: "A casa de Jacó será fogo, e a casa de José, chama, e a casa de Esaú, palha." Jacó (Judá) e José (as tribos do Norte, Efraim/Manassés) aparecem reunidos como instrumento único do juízo — promessa de reunificação de Israel.',
+      'Obadias 18: "A casa de Jacó será fogo, e a casa de José, chama, e a casa de Esaú, palha." Jacó (Judá) e José (as tribos do Norte, Efraim/Manassés) aparecem reunidos como instrumento único do juízo — quadro que muitos leem como promessa de reunificação de Israel.',
     hint: 'Completa o trio: fogo, ___, palha.',
   },
   {

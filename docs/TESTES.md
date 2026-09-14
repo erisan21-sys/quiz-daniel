@@ -10,7 +10,7 @@ A suíte sobe o **aplicativo Express real** (mesmas rotas, middlewares e serviç
 contra o repositório local e faz requisições HTTP de verdade — ou seja, testa o contrato da
 API, não apenas funções isoladas.
 
-Resultado atual: **92/92 passando** (56 integração + 35 regras + 1 infra).
+Resultado atual: **102/102 passando** (56 integração + 35 regras + 10 segurança + 1 infra).
 
 ## test/rules.test.js — regras oficiais (35 testes)
 
@@ -46,6 +46,17 @@ Resultado atual: **92/92 passando** (56 integração + 35 regras + 1 infra).
 | Admin | 401 sem token, 403 token errado, 403 token de jogador; CRUD de questões (**exige `book_id`**, capítulo por livro, validações 400), usuários/partidas/ranking com filtro por livro, promoção de papel |
 | Privacidade | ocultar perfil sai do ranking e das listas públicas; dono continua acessando; exclusão anonimizadora e exclusão total |
 | Rate limit | excesso de cadastros → 429 |
+
+## test/security.test.js — segurança (10 testes)
+
+* RLS: `questions` sem nenhuma policy para `anon`/`authenticated`; RLS habilitado;
+  `books` só ativos; `admin_tokens`/`audit_log` fechados (leitura estática do SQL);
+* start não vaza `correct_answer`/`explanation` em nenhum dos 3 livros;
+* catálogo sem gabarito (geral + filtro por livro);
+* isolamento total: nenhum livro recebe questão de outro, em nenhuma direção;
+* Service Worker (carrega o `sw.js` real em `vm`): cacheia GETs públicos sem auth;
+  NUNCA cacheia com `Authorization`, rotas privadas (`/users/*`, `/admin/*`,
+  `/ranking/me`, `/attempts/:id`, `/quiz/*`) ou POST/PUT/PATCH/DELETE.
 
 ## Cobrindo o fluxo no navegador (checklist manual)
 

@@ -102,7 +102,7 @@ Atalhos:
 
 | Comando              | O que faz                                            |
 | -------------------- | ---------------------------------------------------- |
-| `npm test`           | roda os 92 testes do backend                          |
+| `npm test`           | roda os 102 testes do backend                         |
 | `npm run build`      | build de produção do frontend (`frontend/dist`)       |
 | `npm run start:backend` | backend em modo produção (serve `frontend/dist` se existir) |
 | `npm run icons`      | regenera os ícones do PWA                             |
@@ -120,7 +120,7 @@ Atalhos:
       triggers anti-fraude e as funções `leaderboard(p_book, …)`, `player_rank()`,
       `global_stats(p_book)` e `player_stats()`;
    2. `database/seed_books.sql` — os 3 livros, as 150 perguntas e as 21 conquistas;
-   3. `database/rls.sql` — Row Level Security + policies (leituras públicas, escrita bloqueada).
+   3. `database/rls.sql` — Row Level Security + policies (leituras estritamente públicas — `questions` sem acesso direto —, escrita bloqueada).
 3. Em **Project Settings → API**, copie:
    * `Project URL` → `SUPABASE_URL`
    * `service_role` (**secret**) → `SUPABASE_SERVICE_ROLE_KEY` (somente no backend!)
@@ -207,7 +207,7 @@ curl -s 'localhost:8787/api/ranking?book_id=jonas'
 
 ```bash
 cd quiz-daniel/backend
-npm test          # 92 testes: regras, pontuação, anti-fraude, ranking, admin…
+npm test          # 102 testes: regras, pontuação, anti-fraude, ranking, admin, segurança…
 ```
 
 Cobertura funcional (detalhes em `docs/TESTES.md`): catálogo de livros · cadastro · início de

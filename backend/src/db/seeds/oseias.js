@@ -96,7 +96,7 @@ export const OSEIAS_QUESTIONS = [
     option_a: 'Em riquezas e palácios', option_b: 'Em guerras e conquistas', option_c: 'Em silêncio e distância', option_d: 'Em fidelidade',
     correct_answer: 'D',
     explanation:
-      'Oséias 2:19-20: "Desposar-te-ei comigo em justiça, em juízo, em benignidade e em misericórdias; desposar-te-ei comigo em fidelidade, e conhecerás ao Senhor." O casamento restaurado é a imagem da nova aliança.',
+      'Oséias 2:19-20: "Desposar-te-ei comigo em justiça, em juízo, em benignidade e em misericórdias; desposar-te-ei comigo em fidelidade, e conhecerás ao Senhor." O casamento restaurado é a imagem do relacionamento renovado entre Deus e Israel.',
     hint: 'É o oposto da infidelidade que marcou o povo.',
   },
   {
@@ -114,7 +114,7 @@ export const OSEIAS_QUESTIONS = [
     option_a: 'cresceu demais e transbordou', option_b: 'não foi virado', option_c: 'foi feito sem fermento', option_d: 'alimentou uma multidão',
     correct_answer: 'B',
     explanation:
-      'Oséias 7:8: "Efraim se mistura com os povos; Efraim é um bolo que não foi virado." Assado só de um lado, o bolo queima por baixo e fica cru por cima: retrato de um povo pela metade, misturado com as nações e inútil para Deus.',
+      'Oséias 7:8: "Efraim se mistura com os povos; Efraim é um bolo que não foi virado." Assado só de um lado, o bolo queima por baixo e fica cru por cima: retrato de um povo pela metade, misturado com as nações.',
     hint: 'O problema é que ele foi assado de um lado só.',
   },
   {
@@ -176,7 +176,7 @@ export const OSEIAS_QUESTIONS = [
   {
     id: uuid('010000000204'), book_id: 'oseias', chapter: 3, difficulty: 'medio', order_index: 19, source_type: 'texto_biblico',
     question: 'O que Oséias pagou para readquirir Gômer, segundo Oséias 3:2?',
-    option_a: 'Trinta siclos de prata', option_b: 'Sete cordeiros', option_c: 'Quinze siclos de prata e cevada', option_d: 'Um par de bois',
+    option_a: 'Trinta peças de prata', option_b: 'Sete cordeiros', option_c: 'Quinze peças de prata e cevada', option_d: 'Um par de bois',
     correct_answer: 'C',
     explanation:
       'Oséias 3:2: "Comprei-a, pois, para mim por quinze peças de prata, e um ômer e meio de cevada." O preço humilde pago pelo profeta ilustra o resgate amoroso com que Deus tornaria a buscar Israel.',
@@ -202,7 +202,7 @@ export const OSEIAS_QUESTIONS = [
   },
   {
     id: uuid('010000000207'), book_id: 'oseias', chapter: 4, difficulty: 'medio', order_index: 22, source_type: 'texto_biblico',
-    question: 'Em Oséias 4:15, Deus diz: "Não subais a ___".',
+    question: 'Em Oséias 4:15, Deus diz: "Não venhais a ___".',
     option_a: 'Jerusalém', option_b: 'Gilgal', option_c: 'Hebrom', option_d: 'Belém',
     correct_answer: 'B',
     explanation:
